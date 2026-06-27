@@ -9,6 +9,7 @@ const rateLimit = require('express-rate-limit');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const morgan = require('morgan');
 const XLSX = require('xlsx');
 const db = require('./db');
@@ -759,6 +760,28 @@ app.post('/api/admin/settings', auth, (req, res) => {
   try { tx(); } catch (e) { console.error('[settings]', e.message); return res.status(500).json({ error: 'Не удалось сохранить настройки' }); }
   Object.assign(SETTINGS, clean); // применяем сразу, без перезапуска сервера
   res.json({ ok: true });
+});
+
+// ---------- ДИАГНОСТИКА: сырой ответ API Al-Style по товару (для подключения характеристик) ----------
+app.get('/api/admin/alstyle-raw', auth, (req, res) => {
+  const key = (process.env.ALSTYLE_API_KEY || '').trim();
+  if (!key || key === 'PUT-YOUR-KEY') {
+    return res.status(400).json({ error: 'На веб-сервисе не задан ALSTYLE_API_KEY. Добавьте его в Render → веб-сервис servis-catalog → Environment (значение возьмите из cron-задачи импорта) и сделайте Manual Deploy.' });
+  }
+  const article = String(req.query.article || '').replace(/[^0-9A-Za-z\-_.]/g, '').slice(0, 40);
+  if (!article) return res.status(400).json({ error: 'Укажите article' });
+  const base = (process.env.ALSTYLE_API_BASE || 'https://api.al-style.kz/api').replace(/\/$/, '');
+  const fields = 'brand,images,description,characteristics,properties,params,attributes,specification,specifications,options,features,rrp,price1,price2';
+  const url = `${base}/elements?access-token=${encodeURIComponent(key)}&id_elements=${encodeURIComponent(article)}&additional_fields=${encodeURIComponent(fields)}`;
+  const rq = https.get(url, { timeout: 15000 }, r => {
+    let d = ''; r.on('data', c => d += c);
+    r.on('end', () => {
+      let parsed; try { parsed = JSON.parse(d); } catch (e) { parsed = { _raw: String(d).slice(0, 12000) }; }
+      res.json({ ok: true, status: r.statusCode, data: parsed });
+    });
+  });
+  rq.on('timeout', () => { rq.destroy(); });
+  rq.on('error', e => res.status(502).json({ error: 'Ошибка запроса к Al-Style: ' + e.message }));
 });
 
 // ---------- СТРАНИЦА ТОВАРА (SEO) ----------

@@ -282,7 +282,25 @@ async function showSettings(){
       '<label><b>Яндекс.Вебмастер — код подтверждения</b><br><input id="setYa" value="'+esc(s.yandex_verification||'')+'" placeholder="напр. a1b2c3d4e5f6g7h8" style="'+inp+'"><br><span style="'+hint+'">Значение content из мета-тега yandex-verification (Вебмастер → Настройка → Подтверждение прав → Мета-тег).</span></label>'+
       '<label><b>Google Search Console — код подтверждения</b><br><input id="setGo" value="'+esc(s.google_verification||'')+'" placeholder="напр. AbCdEf...Xyz" style="'+inp+'"><br><span style="'+hint+'">Значение content из мета-тега google-site-verification (способ «HTML-тег»).</span></label>'+
       '<button onclick="saveSettings()" style="background:#1a9e4b;color:#fff;padding:11px 18px;align-self:flex-start;border:none;border-radius:8px;font-weight:700;cursor:pointer">💾 Сохранить настройки</button>'+
+    '</div>'+
+    '<div style="margin-top:26px;padding-top:18px;border-top:1px solid #eee">'+
+      '<b style="font-size:14px">🔌 Диагностика API Al-Style</b>'+
+      '<div style="font-size:12px;color:#888;margin:4px 0 10px">Показывает сырой ответ API по товару — нужно, чтобы узнать, отдаёт ли Al-Style характеристики и в каком поле.</div>'+
+      '<div style="display:flex;gap:8px;align-items:center;max-width:560px">'+
+        '<input id="apiArticle" value="66027" placeholder="код товара" style="flex:1;padding:9px;border:1.5px solid #ddd;border-radius:8px">'+
+        '<button onclick="testApi()" style="background:#1a7fd4;color:#fff;padding:9px 16px;border:none;border-radius:8px;font-weight:700;cursor:pointer;white-space:nowrap">Запросить</button>'+
+      '</div>'+
+      '<pre id="apiOut" style="margin-top:10px;background:#f6f6f8;border:1px solid #e3e3e3;border-radius:8px;padding:12px;font-size:12px;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-word"></pre>'+
     '</div>';
+}
+async function testApi(){
+  const a=(document.getElementById('apiArticle').value||'66027').trim();
+  const out=document.getElementById('apiOut'); out.textContent='Запрос…';
+  try{
+    const r=await fetch('/api/admin/alstyle-raw?article='+encodeURIComponent(a),{headers:H()});
+    const d=await r.json();
+    out.textContent = r.ok ? JSON.stringify(d.data,null,2) : ('Ошибка: '+(d.error||r.status));
+  }catch(e){ out.textContent='Ошибка сети: '+e.message; }
 }
 async function saveSettings(){
   const body={ym_id:document.getElementById('setYm').value,yandex_verification:document.getElementById('setYa').value,google_verification:document.getElementById('setGo').value};
