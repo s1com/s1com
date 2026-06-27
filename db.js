@@ -71,6 +71,7 @@ function ensureColumn(table,col,ddl){
   if(!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 ensureColumn('products','created_at','created_at TEXT');
+ensureColumn('products','images','images TEXT');
 ensureColumn('import_log','deactivated','deactivated INTEGER DEFAULT 0');
 ensureColumn('import_log','skipped','skipped INTEGER DEFAULT 0');
 ensureColumn('orders','cust_name','cust_name TEXT');

@@ -162,10 +162,20 @@ function sanitizeProduct(p) {
     promo: p.promo ? 1 : 0,
     stock: Math.max(0, toInt(p.stock)),
     img: clamp(p.img, 500),
+    images: cleanImages(p.images),
     mp: clamp(p.mp, 30),
     conn: Array.isArray(p.conn) ? clamp(p.conn.join(','), 100) : clamp(p.conn, 100),
     type: clamp(p.type, 100)
   };
+}
+// Нормализуем список фото в JSON-массив ссылок (до 12 шт). Принимаем массив или JSON-строку.
+function cleanImages(v) {
+  let arr = v;
+  if (typeof v === 'string') { try { arr = JSON.parse(v); } catch (e) { arr = v ? [v] : []; } }
+  if (!Array.isArray(arr)) return '';
+  const out = [];
+  for (const u of arr) { const s = clamp(u, 500).trim(); if (s && !out.includes(s)) out.push(s); if (out.length >= 12) break; }
+  return out.length ? JSON.stringify(out) : '';
 }
 
 const MAX_IMPORT = Number(process.env.MAX_IMPORT || 5000); // защита от гигантских/мусорных выгрузок
@@ -241,10 +251,10 @@ app.post('/api/import', importLimiter, (req, res) => {
   if (products.length > MAX_IMPORT) return res.status(413).json({ error: `Слишком много товаров за раз (макс ${MAX_IMPORT})` });
 
   const findBySku = db.prepare('SELECT id FROM products WHERE sku=?');
-  const ins = db.prepare(`INSERT INTO products(sku,brand,model,grp,cat,descr,res,price,oldprice,promo,stock,img,mp,conn,type,created_at,updated_at)
-    VALUES(@sku,@brand,@model,@grp,@cat,@descr,@res,@price,@oldprice,@promo,@stock,@img,@mp,@conn,@type,@now,@now)`);
+  const ins = db.prepare(`INSERT INTO products(sku,brand,model,grp,cat,descr,res,price,oldprice,promo,stock,img,images,mp,conn,type,created_at,updated_at)
+    VALUES(@sku,@brand,@model,@grp,@cat,@descr,@res,@price,@oldprice,@promo,@stock,@img,@images,@mp,@conn,@type,@now,@now)`);
   const upd = db.prepare(`UPDATE products SET brand=@brand,model=@model,grp=@grp,cat=@cat,descr=@descr,res=@res,
-    price=@price,stock=@stock,img=COALESCE(NULLIF(@img,''),img),visible=1,updated_at=@now WHERE sku=@sku`);
+    price=@price,stock=@stock,img=COALESCE(NULLIF(@img,''),img),images=COALESCE(NULLIF(@images,''),images),visible=1,updated_at=@now WHERE sku=@sku`);
 
   let created = 0, updated = 0, skipped = 0, deactivated = 0;
   const now = new Date().toISOString();
@@ -758,6 +768,7 @@ app.get('/product/:sku', (req, res) => {
     return res.status(404).sendFile(path.join(__dirname, 'public', '404.html'));
   }
   const p = rowToPublic(row);
+  p.id = row.id; p.images = row.images || ''; // галерея фото для страницы товара
   // похожие: тот же раздел, другие товары
   const related = db.prepare('SELECT * FROM products WHERE grp=? AND sku<>? AND visible=1 ORDER BY (price=0), RANDOM() LIMIT 4')
     .all(row.grp, row.sku).map(rowToPublic);

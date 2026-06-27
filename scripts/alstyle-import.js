@@ -175,6 +175,27 @@ function pickImage(el) {
   const code = String(el.article || '').trim();
   return code ? `https://img.al-style.kz/${code.padStart(5, '0')}_01.jpg` : ''; // шаблон Al-Style (суффикс _01); битую сайт заменит плейсхолдером
 }
+// Собираем ВСЕ фото товара (галерея). Возвращает массив ссылок (https), без дублей, до 12 шт.
+function pickImages(el) {
+  const out = [];
+  let imgs = el.images;
+  if (typeof imgs === 'string') imgs = imgs.split(',').map(s => s.trim()).filter(Boolean);
+  if (Array.isArray(imgs)) {
+    for (const it of imgs) {
+      let u = typeof it === 'string' ? it : (it && (it.full || it.url || it.src || it.image || it.big || it.original));
+      if (!u) continue;
+      u = String(u).trim();
+      if (/^https?:\/\//i.test(u)) u = u.replace(/^http:\/\//i, 'https://');
+      else if (u.startsWith('//')) u = 'https:' + u;
+      else if (u.startsWith('/')) u = 'https://al-style.kz' + u;
+      else u = 'https://al-style.kz/' + u.replace(/^\.?\//, '');
+      if (!out.includes(u)) out.push(u);
+      if (out.length >= 12) break;
+    }
+  }
+  if (!out.length) { const one = pickImage(el); if (one) out.push(one); } // запасной вариант — шаблон _01.jpg
+  return out;
+}
 function enrich(group, catName) { // лёгкое обогащение для видеонаблюдения
   const out = {};
   if (group === 'Видеонаблюдение') {
@@ -197,13 +218,14 @@ function transform(el, leafGroup, leafName) {
   const cat = leafName.get(String(el.category)) || String(el.category || '');
   const model = String(el.article_pn || el.name || '').trim().slice(0, 120);
   const desc = stripHtml(el.description || el.full_name || el.name || '').slice(0, 2000);
+  const imgs = pickImages(el);
   return Object.assign({
     sku: String(article),
     brand: String(el.brand || '').trim(),
     model,
     group, cat: String(cat).slice(0, 100),
     desc,
-    res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: pickImage(el),
+    res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: imgs[0] || '', images: imgs,
   }, enrich(group, cat));
 }
 
