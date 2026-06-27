@@ -765,23 +765,29 @@ app.post('/api/admin/settings', auth, (req, res) => {
 // ---------- ДИАГНОСТИКА: сырой ответ API Al-Style по товару (для подключения характеристик) ----------
 app.get('/api/admin/alstyle-raw', auth, (req, res) => {
   const key = (process.env.ALSTYLE_API_KEY || '').trim();
-  if (!key || key === 'PUT-YOUR-KEY') {
-    return res.status(400).json({ error: 'На веб-сервисе не задан ALSTYLE_API_KEY. Добавьте его в Render → веб-сервис servis-catalog → Environment (значение возьмите из cron-задачи импорта) и сделайте Manual Deploy.' });
+  const keyInfo = { keyPresent: !!key && key !== 'PUT-YOUR-KEY', keyLen: key.length };
+  if (!keyInfo.keyPresent) {
+    return res.status(400).json({ error: 'На веб-сервисе НЕ задан ALSTYLE_API_KEY. Render → сервис servis-catalog → Environment → добавьте переменную ALSTYLE_API_KEY (значение из cron-задачи импорта) и сделайте Manual Deploy.', ...keyInfo });
   }
   const article = String(req.query.article || '').replace(/[^0-9A-Za-z\-_.]/g, '').slice(0, 40);
-  if (!article) return res.status(400).json({ error: 'Укажите article' });
+  if (!article) return res.status(400).json({ error: 'Укажите article', ...keyInfo });
   const base = (process.env.ALSTYLE_API_BASE || 'https://api.al-style.kz/api').replace(/\/$/, '');
+  const method = String(req.query.method || 'elements').replace(/[^a-z\-]/gi, '') || 'elements';
   const fields = 'brand,images,description,characteristics,properties,params,attributes,specification,specifications,options,features,rrp,price1,price2';
-  const url = `${base}/elements?access-token=${encodeURIComponent(key)}&id_elements=${encodeURIComponent(article)}&additional_fields=${encodeURIComponent(fields)}`;
-  const rq = https.get(url, { timeout: 15000 }, r => {
+  const u = new URL(`${base}/${method}`);
+  u.searchParams.set('access-token', key);
+  u.searchParams.set('id_elements', article);
+  u.searchParams.set('additional_fields', fields);
+  const rq = https.request(u, { method: 'GET', timeout: 15000 }, r => {
     let d = ''; r.on('data', c => d += c);
     r.on('end', () => {
       let parsed; try { parsed = JSON.parse(d); } catch (e) { parsed = { _raw: String(d).slice(0, 12000) }; }
-      res.json({ ok: true, status: r.statusCode, data: parsed });
+      res.json({ ok: true, status: r.statusCode, method, ...keyInfo, data: parsed });
     });
   });
-  rq.on('timeout', () => { rq.destroy(); });
-  rq.on('error', e => res.status(502).json({ error: 'Ошибка запроса к Al-Style: ' + e.message }));
+  rq.on('timeout', () => rq.destroy(new Error('timeout')));
+  rq.on('error', e => res.status(502).json({ error: 'Ошибка запроса к Al-Style: ' + e.message, ...keyInfo }));
+  rq.end();
 });
 
 // ---------- СТРАНИЦА ТОВАРА (SEO) ----------
