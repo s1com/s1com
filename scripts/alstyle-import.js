@@ -179,6 +179,29 @@ async function collect(leafGroup, leafName, targetLeafIds, firstPageOnly) {
   return out;
 }
 
+// ─────────────── Быстрая синхронизация ТОЛЬКО остатков (метод /quantity-price → /api/stock)
+async function postStock(items) {
+  const body = JSON.stringify({ items });
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
+  const url = CFG.SITE_URL.replace(/\/$/, '') + '/api/stock';
+  try { return await httpPost(url, headers, body); } catch (e) { await new Promise(r => setTimeout(r, 2000)); return httpPost(url, headers, body); }
+}
+async function syncStock() {
+  console.log('Запрашиваю остатки Al-Style (/quantity-price)…');
+  const raw = await apiGet('quantity-price', {}); // { "<sku>": { quantity, price1, ... }, ... }
+  const map = (raw && raw.data && typeof raw.data === 'object') ? raw.data : raw;
+  const items = Object.entries(map || {}).map(([sku, v]) => ({ sku: String(sku), stock: parseQty(v && v.quantity) }));
+  console.log('Получено позиций у Al-Style:', items.length);
+  if (!items.length) { console.log('Пусто — проверьте метод/ключ.'); return; }
+  let updated = 0, missing = 0;
+  for (let i = 0; i < items.length; i += CFG.BATCH) {
+    const r = await postStock(items.slice(i, i + CFG.BATCH));
+    updated += r.updated || 0; missing += r.missing || 0;
+    console.log(`  пачка ${Math.floor(i / CFG.BATCH) + 1}: обновлено ${r.updated || 0}, нет на сайте ${r.missing || 0}`);
+  }
+  console.log(`Готово. Обновлено остатков на сайте: ${updated}. (Позиций Al-Style не на сайте: ${missing} — игнор.)`);
+}
+
 async function pushBatch(products) {
   const body = JSON.stringify({ source: 'al-style', products, fullSync: CFG.FULL_SYNC });
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
@@ -191,6 +214,9 @@ async function pushBatch(products) {
   const args = process.argv.slice(2);
   try {
     if (CFG.API_KEY === 'PUT-YOUR-KEY') throw new Error('Не задан ALSTYLE_API_KEY.');
+
+    if (args.includes('--stock')) { await syncStock(); return; }
+
     const { leafGroup, leafName, plan, targetLeafIds } = await buildGroups();
 
     if (args.includes('--plan')) {
