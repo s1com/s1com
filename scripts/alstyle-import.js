@@ -148,6 +148,7 @@ function retailPrice(price1, rrp) {
 // Цена для каталога. По умолчанию — РРЦ из Al-Style: rrp («контроль розничной цены»),
 // иначе price2 («розничная»). Если у Al-Style нет розничной — запасной расчёт по наценке.
 function catalogPrice(el) {
+  if ((Number(el.price1) || 0) <= 1) return 0; // у Al-Style закуп «по запросу» → и у нас «цена по запросу»
   if (CFG.PRICE_MODE === 'markup') return retailPrice(el.price1, el.rrp);
   const rrp = Number(el.rrp) || 0, p2 = Number(el.price2) || 0;
   const p = rrp > 0 ? rrp : p2;
