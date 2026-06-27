@@ -58,10 +58,18 @@ const CFG = {
   FULL_SYNC: String(process.env.FULL_SYNC || 'false') === 'true',
   PAGE: 250, BATCH: 2000, CAT_CHUNK: 80, TIMEOUT: 45000,
   ADDITIONAL: 'brand,images,description,rrp',
+  THROTTLE_MS: Number(process.env.THROTTLE_MS || 5500), // Al-Style: не чаще 1 запроса/5с
 };
 
 // ─────────────── HTTP
-function apiGet(method, params) {
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+let _lastApiCall = 0;
+async function throttle() {
+  const wait = CFG.THROTTLE_MS - (Date.now() - _lastApiCall);
+  if (wait > 0) await sleep(wait);
+  _lastApiCall = Date.now();
+}
+function rawGet(method, params) {
   const url = new URL(CFG.API_BASE.replace(/\/$/, '') + '/' + method);
   url.searchParams.set('access-token', CFG.API_KEY);
   for (const [k, v] of Object.entries(params || {})) if (v !== undefined && v !== '') url.searchParams.set(k, v);
@@ -76,6 +84,16 @@ function apiGet(method, params) {
     req.on('timeout', () => req.destroy(new Error('Таймаут Al-Style')));
     req.on('error', reject); req.end();
   });
+}
+async function apiGet(method, params) {
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    await throttle();
+    try { return await rawGet(method, params); }
+    catch (e) {
+      if (/HTTP 403/.test(e.message) && attempt < 4) { console.log('  лимит Al-Style (403) — пауза 10с и повтор…'); await sleep(10000); continue; }
+      throw e;
+    }
+  }
 }
 function httpPost(urlStr, headers, body) {
   return new Promise((resolve, reject) => {
