@@ -49,6 +49,7 @@ td textarea{resize:vertical;min-height:32px}
     <button class="b2" onclick="saveAll()">💾 Сохранить всё</button>
     <button class="b2" onclick="showOrders()" style="background:#1a7fd4">📋 Заявки <span id="ordBadge" style="background:#fff;color:#1a7fd4;border-radius:10px;padding:0 6px;font-size:11px;display:none"></span></button>
     <button class="b3" onclick="showCats()" style="background:#6d3a9e">🗂 Категории</button>
+    <button class="b3" onclick="showSettings()" style="background:#444">⚙ Настройки</button>
     <button class="b4" onclick="showLog()">📥 Журнал выгрузок 1С</button>
     <button class="b3" onclick="logout()">Выйти</button>
   </div>
@@ -77,6 +78,7 @@ td textarea{resize:vertical;min-height:32px}
   <div class="log hide" id="ordBox"></div>
   <div class="log hide" id="catBox"></div>
   <div class="log hide" id="dashBox"></div>
+  <div class="log hide" id="settingsBox"></div>
 </div>
 </div>
 
@@ -189,25 +191,75 @@ async function loadOrdersBadge(){
 
 
 async function showDash(){
-  ['logBox','ordBox','catBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['logBox','ordBox','catBox','settingsBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
   const box=document.getElementById('dashBox');box.classList.toggle('hide');if(box.classList.contains('hide'))return;
   box.innerHTML='<p style="color:#888">Загрузка статистики…</p>';
   const s=await (await fetch('/api/admin/stats',{headers:H()})).json();
-  const card=(label,val,color)=>'<div style="flex:1;min-width:130px;background:#fff;border:1px solid #eee;border-radius:12px;padding:16px"><div style="font-size:28px;font-weight:800;color:'+(color||'#222')+'">'+val+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+label+'</div></div>';
-  const byGroup=s.byGroup.map(g=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:14px"><span>'+esc(g.grp||'(без категории)')+'</span><b>'+g.c+'</b></div>').join('');
-  const demand=s.topDemand.length?s.topDemand.map((d,i)=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:14px"><span>'+(i+1)+'. '+esc(d.name)+'</span><b>'+d.qty+' шт</b></div>').join(''):'<p style="color:#aaa;font-size:13px">Заявок пока нет</p>';
+  const money=n=>(Math.round(n||0)).toLocaleString('ru-RU')+' ₸';
+  const pct=(a,b)=>b?Math.round(a/b*100):0;
+  const card=(label,val,color,sub,subColor)=>'<div style="flex:1;min-width:140px;background:#fff;border:1px solid #eee;border-radius:12px;padding:16px"><div style="font-size:26px;font-weight:800;color:'+(color||'#222')+'">'+val+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+label+'</div>'+(sub?'<div style="font-size:11.5px;color:'+(subColor||'#aaa')+';margin-top:4px">'+sub+'</div>':'')+'</div>';
+  const dlist=arr=>arr&&arr.length?arr.map((d,i)=>'<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #f3f3f3;font-size:13.5px"><span>'+(i+1)+'. '+esc(d.name)+'</span><b>'+d.qty+'</b></div>').join(''):'<p style="color:#aaa;font-size:13px">Заявок пока нет</p>';
+
+  // --- график заявок по дням (30 дней) ---
+  const maxd=Math.max(1,...s.ordersDaily.map(x=>x.c));
+  const bars=s.ordersDaily.map(x=>'<div title="'+x.d+': '+x.c+' заявок" style="flex:1;display:flex;align-items:flex-end;justify-content:center"><div style="width:68%;min-height:2px;height:'+(Math.round(x.c/maxd*56)+2)+'px;background:'+(x.c?'#1a7fd4':'#ececec')+';border-radius:3px 3px 0 0"></div></div>').join('');
+  const totalMonth=s.ordersDaily.reduce((a,x)=>a+x.c,0);
+  const chart='<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:14px 16px;margin-bottom:18px"><div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;margin-bottom:10px"><span>Заявки по дням</span><span style="color:#888;font-weight:400">за 30 дней: '+totalMonth+'</span></div><div style="display:flex;align-items:flex-end;gap:2px;height:64px">'+bars+'</div><div style="display:flex;justify-content:space-between;font-size:11px;color:#aaa;margin-top:6px"><span>30 дней назад</span><span>15</span><span>сегодня</span></div></div>';
+
+  // --- KPI заявок ---
+  const g=s.orders.growthPct, gcolor=g>=0?'#1a9e4b':'#E02128', garrow=g>=0?'▲':'▼';
+  const oldest=s.orders.oldestNewDays;
+  const oldestSub=oldest==null?'новых нет':(oldest===0?'самая старая: сегодня':'⏳ старейшая ждёт '+oldest+' дн.');
+  const oldestColor=(oldest!=null&&oldest>=2)?'#E02128':'#aaa';
+  const resp=s.orders.avgResponseDays;
+  const ordersKpi=
+    card('Новых заявок',s.orders.new,'#E02128',oldestSub,oldestColor)+
+    card('За сутки',s.orders.last24h,'#1a7fd4')+
+    card('За 30 дней',s.orders.month,'#1a7fd4',garrow+' '+Math.abs(g)+'% к пред. 30 дн.',gcolor)+
+    card('Обработано',s.orders.done,'#1a9e4b','из '+s.orders.total+' всего')+
+    card('Ср. ответ',resp!=null?resp+' дн.':'—','#6d3a9e','время до «обработана»');
+
+  // --- пайплайн (потенциальная выручка по новым заявкам) ---
+  const pipe='<div style="background:linear-gradient(100deg,#0d3b2e,#13795f);color:#fff;border-radius:12px;padding:18px 20px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">'+
+    '<div><div style="font-size:13px;opacity:.85">💰 Сумма новых заявок (потенциальная выручка)</div><div style="font-size:30px;font-weight:800;margin-top:4px">≈ '+money(s.orders.pipeline)+'</div></div>'+
+    '<div style="font-size:12px;opacity:.85;text-align:right;line-height:1.7">по ценам каталога<br>средняя заявка: '+s.orders.avgItems+' поз.</div></div>';
+
+  // --- здоровье каталога ---
+  const photoP=pct(s.products.withPhoto,s.products.total), priceP=pct(s.products.total-s.products.noPrice,s.products.total), stockP=pct(s.products.inStock,s.products.total);
+  const catKpi=
+    card('Всего товаров',s.products.total,'#1a7fd4')+
+    card('В наличии',s.products.inStock,'#1a9e4b',stockP+'% каталога')+
+    card('С фото',s.products.withPhoto,photoP<60?'#d98800':'#1a9e4b',photoP+'% каталога',photoP<60?'#d98800':'#aaa')+
+    card('Без цены',s.products.noPrice,'#d98800',(100-priceP)+'% каталога')+
+    card('Скрыто',s.products.hidden,'#888')+
+    card('Не обновл. >7д',s.products.stale7d,s.products.stale7d>0?'#d98800':'#1a9e4b','возможно, ушли у поставщика',s.products.stale7d>0?'#d98800':'#aaa');
+
+  // --- свежесть синхронизации ---
+  const li=s.sync.lastImport, age=s.sync.importAgeHours;
+  let syncHtml;
+  if(li){ const warn=(age==null||age>36); syncHtml='<div style="background:'+(warn?'#fff8e1':'#f3fbf6')+';border:1px solid '+(warn?'#ffe7a3':'#cdebd9')+';border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:13px;color:#555">'+(warn?'⚠️ ':'✓ ')+'Последняя синхронизация: <b>'+(age!=null?age+' ч назад':'давно')+'</b> · создано '+(li.created||0)+', обновлено '+(li.updated||0)+(li.deactivated?', снято '+li.deactivated:'')+(li.skipped?', пропущено '+li.skipped:'')+' · <span style="color:#888">'+esc(li.source||'')+'</span></div>'; }
+  else syncHtml='<div style="background:#fff8e1;border:1px solid #ffe7a3;border-radius:10px;padding:12px 14px;margin-bottom:18px;font-size:13px;color:#8a6d00">⚠️ Импорта из Al-Style ещё не было — запустите Cron-задачу импорта.</div>';
+
+  // --- неудовлетворённый спрос ---
+  const rb={'без цены':'#d98800','нет в наличии':'#E02128','нет в каталоге':'#888','скрыт':'#6d3a9e'};
+  const unmet=s.unmetDemand&&s.unmetDemand.length
+    ? s.unmetDemand.map(d=>'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid #f3f3f3;font-size:13.5px"><span>'+esc(d.name)+' <span style="font-size:11px;color:#fff;background:'+(rb[d.reason]||'#888')+';padding:1px 7px;border-radius:10px;margin-left:4px">'+d.reason+'</span></span><b>'+d.qty+' шт</b></div>').join('')
+    : '<p style="color:#1a9e4b;font-size:13px">Всё запрашиваемое есть в наличии и с ценой 👍</p>';
+
   box.innerHTML='<h3>📊 Дашборд</h3>'+
-    '<div style="font-size:13px;color:#888;margin-bottom:8px">Товары</div>'+
-    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">'+
-      card('Всего товаров',s.products.total,'#1a7fd4')+card('В наличии',s.products.inStock,'#1a9e4b')+card('Акции',s.products.promo,'#E02128')+card('Без цены',s.products.noPrice,'#d98800')+card('Категорий видно',s.categoriesVisible,'#6d3a9e')+
-    '</div>'+
+    chart+
     '<div style="font-size:13px;color:#888;margin-bottom:8px">Заявки</div>'+
-    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">'+
-      card('Новых',s.orders.new,'#E02128')+card('За 7 дней',s.orders.week,'#1a7fd4')+card('Всего',s.orders.total,'#222')+
-    '</div>'+
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">'+ordersKpi+'</div>'+
+    pipe+
+    '<div style="font-size:13px;color:#888;margin-bottom:8px">Каталог</div>'+
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">'+catKpi+'</div>'+
+    syncHtml+
+    '<div style="background:#fff;border:1.5px solid #ffd9b0;border-radius:12px;padding:16px;margin-bottom:18px"><b style="font-size:14px;color:#b8690a">⚠ Спрос, который каталог не закрывает</b><div style="font-size:12px;color:#888;margin:4px 0 10px">Эти позиции запрашивали в заявках, но у них нет цены, нет на складе или их нет в каталоге — самое прибыльное, что стоит исправить.</div>'+unmet+'</div>'+
     '<div style="display:flex;gap:18px;flex-wrap:wrap">'+
-      '<div style="flex:1;min-width:240px"><b style="font-size:14px">Товары по направлениям</b>'+byGroup+'</div>'+
-      '<div style="flex:1;min-width:240px"><b style="font-size:14px">Чаще всего запрашивают</b>'+demand+'</div>'+
+      '<div style="flex:1;min-width:230px"><b style="font-size:14px">🔝 Чаще запрашивают</b>'+dlist(s.topDemand)+'</div>'+
+      '<div style="flex:1;min-width:200px"><b style="font-size:14px">Запрашиваемые бренды</b>'+dlist(s.topBrands)+'</div>'+
+      '<div style="flex:1;min-width:200px"><b style="font-size:14px">Запрашиваемые категории</b>'+dlist(s.topCats)+'</div>'+
+      '<div style="flex:1;min-width:200px"><b style="font-size:14px">Товары по направлениям</b>'+s.byGroup.map(gr=>'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f3f3;font-size:13.5px"><span>'+esc(gr.grp||'(без категории)')+'</span><b>'+gr.c+'</b></div>').join('')+'</div>'+
     '</div>';
 }
 function exportOrders(){
@@ -217,8 +269,32 @@ function exportOrders(){
   }).catch(()=>alert('Не удалось выгрузить'));
 }
 
+async function showSettings(){
+  const box=document.getElementById('settingsBox');['logBox','ordBox','catBox','dashBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  box.classList.toggle('hide'); if(box.classList.contains('hide'))return;
+  let s={}; try{ const r=await fetch('/api/admin/settings',{headers:H()}); s=await r.json(); }catch(e){}
+  const inp='width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;margin-top:4px';
+  const hint='font-size:12px;color:#888';
+  box.innerHTML='<h3>⚙ Настройки сайта</h3>'+
+    '<p style="font-size:12.5px;color:#666;margin-bottom:14px">Яндекс.Метрика и коды подтверждения прав в поисковиках. Сохранение применяется сразу — перезапускать сервер не нужно.</p>'+
+    '<div style="display:flex;flex-direction:column;gap:16px;max-width:580px">'+
+      '<label><b>ID счётчика Яндекс.Метрики</b><br><input id="setYm" value="'+esc(s.ym_id||'')+'" placeholder="напр. 98765432" style="'+inp+'"><br><span style="'+hint+'">Только цифры. В кабинете Метрики: Настройки → «Номер». После сохранения счётчик начнёт собирать визиты автоматически на всех страницах.</span></label>'+
+      '<label><b>Яндекс.Вебмастер — код подтверждения</b><br><input id="setYa" value="'+esc(s.yandex_verification||'')+'" placeholder="напр. a1b2c3d4e5f6g7h8" style="'+inp+'"><br><span style="'+hint+'">Значение content из мета-тега yandex-verification (Вебмастер → Настройка → Подтверждение прав → Мета-тег).</span></label>'+
+      '<label><b>Google Search Console — код подтверждения</b><br><input id="setGo" value="'+esc(s.google_verification||'')+'" placeholder="напр. AbCdEf...Xyz" style="'+inp+'"><br><span style="'+hint+'">Значение content из мета-тега google-site-verification (способ «HTML-тег»).</span></label>'+
+      '<button onclick="saveSettings()" style="background:#1a9e4b;color:#fff;padding:11px 18px;align-self:flex-start;border:none;border-radius:8px;font-weight:700;cursor:pointer">💾 Сохранить настройки</button>'+
+    '</div>';
+}
+async function saveSettings(){
+  const body={ym_id:document.getElementById('setYm').value,yandex_verification:document.getElementById('setYa').value,google_verification:document.getElementById('setGo').value};
+  try{
+    const r=await fetch('/api/admin/settings',{method:'POST',headers:H(),body:JSON.stringify(body)});
+    const d=await r.json();
+    if(r.ok)alert('✓ Настройки сохранены и применены. Метрика и коды верификации уже активны на сайте.');
+    else alert('Ошибка: '+(d.error||''));
+  }catch(e){ alert('Ошибка сети: '+e.message); }
+}
 async function showCats(){
-  const box=document.getElementById('catBox');['logBox','ordBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  const box=document.getElementById('catBox');['logBox','ordBox','dashBox','settingsBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
   box.classList.toggle('hide'); if(box.classList.contains('hide'))return;
   await renderCats();
 }
@@ -277,6 +353,7 @@ async function catDel(id,name,count){
 
 async function showOrders(){
   const box=document.getElementById('ordBox');const log=document.getElementById('logBox');if(log)log.classList.add('hide');
+  ['catBox','dashBox','settingsBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
   box.classList.remove('hide');
   box.scrollIntoView({behavior:'smooth',block:'start'});
   box.innerHTML='<p style="color:#888;padding:10px">Загрузка заявок…</p>';
@@ -308,6 +385,7 @@ async function setOrder(id,status){await fetch('/api/admin/orders/'+id,{method:'
 async function delOrder(id){if(!confirm('Удалить заявку?'))return;await fetch('/api/admin/orders/'+id,{method:'DELETE',headers:H()});showOrders();loadOrdersBadge();}
 
 async function showLog(){
+  ['ordBox','catBox','dashBox','settingsBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
   const box=document.getElementById('logBox');box.classList.toggle('hide');
   if(box.classList.contains('hide'))return;
   const r=await fetch('/api/admin/import-log',{headers:H()});const rows=await r.json();

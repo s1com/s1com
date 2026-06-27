@@ -48,13 +48,17 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim
 const YM_ID = (process.env.YM_ID || '').trim(); // ID счётчика Яндекс.Метрики
 const YANDEX_VERIFICATION = (process.env.YANDEX_VERIFICATION || '').trim();
 const GOOGLE_VERIFICATION = (process.env.GOOGLE_VERIFICATION || '').trim();
+// Настройки сайта, редактируемые из админки (Метрика, коды верификации).
+// Значения из БД имеют приоритет над переменными окружения; применяются без перезапуска.
+const SETTINGS = { ym_id: YM_ID, yandex_verification: YANDEX_VERIFICATION, google_verification: GOOGLE_VERIFICATION };
+try { db.prepare('SELECT key,value FROM settings').all().forEach(r => { if (r.value != null && String(r.value).trim() !== '') SETTINGS[r.key] = String(r.value).trim(); }); } catch (e) {}
 function seoVerifyTags(){
   let t='';
-  if(YANDEX_VERIFICATION) t+=`<meta name="yandex-verification" content="${YANDEX_VERIFICATION}">`;
-  if(GOOGLE_VERIFICATION) t+=`<meta name="google-site-verification" content="${GOOGLE_VERIFICATION}">`;
+  if(SETTINGS.yandex_verification) t+=`<meta name="yandex-verification" content="${SETTINGS.yandex_verification}">`;
+  if(SETTINGS.google_verification) t+=`<meta name="google-site-verification" content="${SETTINGS.google_verification}">`;
   return t;
 }
-function applySeo(html){ return html.replace(/__YM_ID__/g, YM_ID).replace('<!--SEO_VERIFY-->', seoVerifyTags()); }
+function applySeo(html){ return html.replace(/__YM_ID__/g, SETTINGS.ym_id || '').replace('<!--SEO_VERIFY-->', seoVerifyTags()); }
 
 // --- Защита от дефолтных секретов в проде ---
 if (NODE_ENV === 'production') {
@@ -543,8 +547,13 @@ app.get('/api/admin/orders', auth, (req, res) => {
 });
 app.put('/api/admin/orders/:id', auth, (req, res) => {
   const { status, note } = req.body || {};
-  const r = db.prepare('UPDATE orders SET status=COALESCE(?,status), note=COALESCE(?,note) WHERE id=?')
-    .run(status === 'new' || status === 'done' ? status : null, note != null ? clamp(note, 1000) : null, Number(req.params.id));
+  const st = status === 'new' || status === 'done' ? status : null;
+  // done_at: ставим при переходе в «обработана», снимаем при возврате в «новая»
+  const doneAt = st === 'done' ? new Date().toISOString() : (st === 'new' ? null : undefined);
+  const r = db.prepare(`UPDATE orders SET status=COALESCE(?,status), note=COALESCE(?,note)${doneAt !== undefined ? ', done_at=?' : ''} WHERE id=?`)
+    .run(...(doneAt !== undefined
+      ? [st, note != null ? clamp(note, 1000) : null, doneAt, Number(req.params.id)]
+      : [st, note != null ? clamp(note, 1000) : null, Number(req.params.id)]));
   if (!r.changes) return res.status(404).json({ error: 'Заявка не найдена' });
   res.json({ ok: true });
 });
@@ -638,27 +647,108 @@ app.get('/api/admin/orders/export', auth, (req, res) => {
 
 // ---------- АДМИНКА: дашборд (статистика) ----------
 app.get('/api/admin/stats', auth, (req, res) => {
-  const totalProducts = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1').get().c;
-  const inStock = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND stock>0').get().c;
-  const promo = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND promo=1').get().c;
-  const noPrice = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (price=0 OR price IS NULL)').get().c;
-  const byGroup = db.prepare('SELECT grp, COUNT(*) c FROM products WHERE visible=1 GROUP BY grp ORDER BY c DESC').all();
-  const ordersNew = db.prepare("SELECT COUNT(*) c FROM orders WHERE status='new'").get().c;
-  const ordersTotal = db.prepare('SELECT COUNT(*) c FROM orders').get().c;
-  // заявки за 7 дней
-  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString();
-  const ordersWeek = db.prepare('SELECT COUNT(*) c FROM orders WHERE ts >= ?').get(weekAgo).c;
-  // топ запрашиваемых товаров (из состава заявок)
-  const allOrders = db.prepare('SELECT items_json FROM orders').all();
-  const demand = {};
-  allOrders.forEach(o => { try { JSON.parse(o.items_json || '[]').forEach(i => { const k = (i.brand ? i.brand + ' ' : '') + i.model; demand[k] = (demand[k] || 0) + (i.qty || 1); }); } catch (e) {} });
-  const topDemand = Object.entries(demand).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, qty]) => ({ name, qty }));
+  const now = Date.now(); const day = 864e5; const iso = ms => new Date(ms).toISOString();
+
+  // ---------- ТОВАРЫ (здоровье каталога) ----------
+  const total     = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1').get().c;
+  const inStock   = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND stock>0').get().c;
+  const promo     = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND promo=1').get().c;
+  const noPrice   = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (price=0 OR price IS NULL)').get().c;
+  const withPhoto = db.prepare("SELECT COUNT(*) c FROM products WHERE visible=1 AND img IS NOT NULL AND img<>''").get().c;
+  const hidden    = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=0').get().c;
+  const stale7d   = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (updated_at IS NULL OR updated_at < ?)').get(iso(now - 7 * day)).c;
+  const byGroup   = db.prepare('SELECT grp, COUNT(*) c FROM products WHERE visible=1 GROUP BY grp ORDER BY c DESC').all();
   const categoriesVisible = db.prepare('SELECT COUNT(*) c FROM categories WHERE visible=1').get().c;
-  res.json({
-    products: { total: totalProducts, inStock, promo, noPrice },
-    orders: { new: ordersNew, total: ordersTotal, week: ordersWeek },
-    categoriesVisible, byGroup, topDemand
+
+  // карта товаров для анализа состава заявок (sku -> цена/склад/видимость/раздел)
+  const prodMap = new Map();
+  db.prepare('SELECT sku, grp, price, stock, visible FROM products').all().forEach(p => prodMap.set(String(p.sku), p));
+
+  // ---------- ЗАЯВКИ ----------
+  const oNew   = db.prepare("SELECT COUNT(*) c FROM orders WHERE status='new'").get().c;
+  const oDone  = db.prepare("SELECT COUNT(*) c FROM orders WHERE status='done'").get().c;
+  const oTotal = db.prepare('SELECT COUNT(*) c FROM orders').get().c;
+  const o24h   = db.prepare('SELECT COUNT(*) c FROM orders WHERE ts >= ?').get(iso(now - day)).c;
+  const oWeek  = db.prepare('SELECT COUNT(*) c FROM orders WHERE ts >= ?').get(iso(now - 7 * day)).c;
+  const oMonth = db.prepare('SELECT COUNT(*) c FROM orders WHERE ts >= ?').get(iso(now - 30 * day)).c;
+  const oPrev  = db.prepare('SELECT COUNT(*) c FROM orders WHERE ts >= ? AND ts < ?').get(iso(now - 60 * day), iso(now - 30 * day)).c;
+  const growthPct = oPrev ? Math.round((oMonth - oPrev) / oPrev * 100) : (oMonth ? 100 : 0);
+  const avgItems = oTotal ? +((db.prepare('SELECT AVG(items_count) a FROM orders').get().a) || 0).toFixed(1) : 0;
+  const oldestT = db.prepare("SELECT MIN(ts) t FROM orders WHERE status='new'").get().t;
+  const oldestNewDays = oldestT ? Math.floor((now - new Date(oldestT).getTime()) / day) : null;
+  const respRow = db.prepare("SELECT AVG(julianday(done_at)-julianday(ts)) a FROM orders WHERE status='done' AND done_at IS NOT NULL").get();
+  const avgResponseDays = respRow && respRow.a != null ? +respRow.a.toFixed(1) : null;
+
+  // динамика заявок по дням за 30 дней (для графика)
+  const dailyRows = db.prepare("SELECT substr(ts,1,10) d, COUNT(*) c FROM orders WHERE ts>=? GROUP BY d").all(iso(now - 30 * day));
+  const dmap = {}; dailyRows.forEach(r => dmap[r.d] = r.c);
+  const ordersDaily = [];
+  for (let i = 29; i >= 0; i--) { const ds = iso(now - i * day).slice(0, 10); ordersDaily.push({ d: ds, c: dmap[ds] || 0 }); }
+
+  // один проход по заявкам: спрос (товары/бренды/категории) + пайплайн + неудовлетворённый спрос
+  const allOrders = db.prepare('SELECT items_json, status FROM orders').all();
+  const dProd = {}, dBrand = {}, dCat = {}, unmet = {};
+  let pipeline = 0;
+  allOrders.forEach(o => {
+    let items = []; try { items = JSON.parse(o.items_json || '[]'); } catch (e) {}
+    items.forEach(it => {
+      const qty = Math.max(1, Number(it.qty) || 1);
+      const name = ((it.brand ? it.brand + ' ' : '') + (it.model || '')).trim() || String(it.sku || '—');
+      dProd[name] = (dProd[name] || 0) + qty;
+      if (it.brand) dBrand[it.brand] = (dBrand[it.brand] || 0) + qty;
+      const p = prodMap.get(String(it.sku));
+      if (p) {
+        if (p.grp) dCat[p.grp] = (dCat[p.grp] || 0) + qty;
+        if (o.status === 'new') pipeline += (p.price || 0) * qty;
+        let reason = '';
+        if (p.visible === 0) reason = 'скрыт';
+        else if (!p.price) reason = 'без цены';
+        else if (!(p.stock > 0)) reason = 'нет в наличии';
+        if (reason) { const k = name + '|' + reason; (unmet[k] = unmet[k] || { name, reason, qty: 0 }).qty += qty; }
+      } else {
+        const k = name + '|нет в каталоге'; (unmet[k] = unmet[k] || { name, reason: 'нет в каталоге', qty: 0 }).qty += qty;
+      }
+    });
   });
+  const topN = (obj, n) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, qty]) => ({ name, qty }));
+  const topDemand = topN(dProd, 8);
+  const topBrands = topN(dBrand, 6);
+  const topCats   = topN(dCat, 6);
+  const unmetDemand = Object.values(unmet).sort((a, b) => b.qty - a.qty).slice(0, 8);
+
+  // ---------- СВЕЖЕСТЬ СИНХРОНИЗАЦИИ ----------
+  const lastImport = db.prepare('SELECT ts, source, created, updated, deactivated, skipped, note FROM import_log ORDER BY id DESC LIMIT 1').get() || null;
+  const importAgeHours = lastImport && lastImport.ts ? Math.round((now - new Date(lastImport.ts).getTime()) / 36e5) : null;
+
+  res.json({
+    products: { total, inStock, outStock: total - inStock, promo, noPrice, withPhoto, noPhoto: total - withPhoto, hidden, stale7d },
+    orders: { new: oNew, done: oDone, total: oTotal, last24h: o24h, week: oWeek, month: oMonth, prevMonth: oPrev, growthPct, avgItems, oldestNewDays, avgResponseDays, pipeline },
+    ordersDaily, byGroup, categoriesVisible,
+    topDemand, topBrands, topCats, unmetDemand,
+    sync: { lastImport, importAgeHours }
+  });
+});
+
+// ---------- АДМИНКА: настройки сайта (Метрика, верификация поисковиков) ----------
+app.get('/api/admin/settings', auth, (req, res) => {
+  res.json({
+    ym_id: SETTINGS.ym_id || '',
+    yandex_verification: SETTINGS.yandex_verification || '',
+    google_verification: SETTINGS.google_verification || ''
+  });
+});
+app.post('/api/admin/settings', auth, (req, res) => {
+  const b = req.body || {};
+  const clean = {
+    ym_id: String(b.ym_id || '').replace(/[^0-9]/g, '').slice(0, 20),
+    yandex_verification: String(b.yandex_verification || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 100),
+    google_verification: String(b.google_verification || '').replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 120)
+  };
+  const up = db.prepare('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
+  const tx = db.transaction(() => { for (const k in clean) up.run(k, clean[k]); });
+  try { tx(); } catch (e) { console.error('[settings]', e.message); return res.status(500).json({ error: 'Не удалось сохранить настройки' }); }
+  Object.assign(SETTINGS, clean); // применяем сразу, без перезапуска сервера
+  res.json({ ok: true });
 });
 
 // ---------- СТРАНИЦА ТОВАРА (SEO) ----------
@@ -686,10 +776,15 @@ app.get('/robots.txt', (req, res) => {
 app.get('/sitemap.xml', (req, res) => {
   const SITE = process.env.SITE_URL || 'https://servis-com.kz';
   const pages = ['/', '/videonablyudenie.html', '/setevoe.html', '/pozharnaya.html', '/skud.html'];
-  const prods = db.prepare('SELECT sku, updated_at FROM products WHERE visible=1').all();
-  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+  const prods = db.prepare('SELECT sku, updated_at, img FROM products WHERE visible=1').all();
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n';
   pages.forEach(u => xml += `<url><loc>${SITE}${u}</loc><changefreq>weekly</changefreq><priority>${u==='/'?'1.0':'0.8'}</priority></url>\n`);
-  prods.forEach(p => { const lm = p.updated_at ? `<lastmod>${String(p.updated_at).slice(0,10)}</lastmod>` : ''; xml += `<url><loc>${SITE}/product/${encodeURIComponent(p.sku)}</loc>${lm}<changefreq>weekly</changefreq><priority>0.7</priority></url>\n`; });
+  prods.forEach(p => {
+    const lm = p.updated_at ? `<lastmod>${String(p.updated_at).slice(0,10)}</lastmod>` : '';
+    let imgTag = '';
+    if (p.img) { const src = /^https?:\/\//i.test(p.img) ? p.img : `${SITE}/images/${p.img}`; imgTag = `<image:image><image:loc>${src.replace(/&/g,'&amp;')}</image:loc></image:image>`; }
+    xml += `<url><loc>${SITE}/product/${encodeURIComponent(p.sku)}</loc>${lm}${imgTag}<changefreq>weekly</changefreq><priority>0.7</priority></url>\n`;
+  });
   xml += '</urlset>';
   res.type('application/xml').send(xml);
 });

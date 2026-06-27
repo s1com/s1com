@@ -56,27 +56,44 @@ function facetCounts(field){ // counts within current pool ignoring this field's
   const c={};POOL.forEach(p=>{
     const vals=Array.isArray(p[field])?p[field]:[p[field]];
     vals.forEach(v=>{if(v)c[v]=(c[v]||0)+1;});});return c;}
-function buildFacet(title,field,values){
+function buildFacet(title,field,values,collapsed){
   const counts=facetCounts(field);
   const opts=values.filter(v=>counts[v]).map(v=>
     '<label class="opt"><input type="checkbox" '+(F[field].has(v)?'checked':'')+' onchange="toggleF(\''+field+'\',\''+v+'\')"> '+v+'<span class="n">'+counts[v]+'</span></label>').join('');
   if(!opts)return'';
-  return '<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">'+title+'</h3><div class="opts">'+opts+'</div></div>';
+  const cl=collapsed&&!F[field].size?' collapsed':''; // свёрнут, пока в нём ничего не выбрано
+  return '<div class="facet'+cl+'"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">'+title+'</h3><div class="opts">'+opts+'</div></div>';
 }
 function toggleF(field,v){F[field].has(v)?F[field].delete(v):F[field].add(v);render();renderActiveTags();}
+function renderCategoryNav(){
+  if(!CATTREE||!CATTREE.length) return '';
+  let items='<a class="catnav-item'+(curGroup==='\u0412\u0441\u0435'?' active':'')+'" onclick="selectGroup(\'\u0412\u0441\u0435\')">\u0412\u0441\u0435 \u0442\u043E\u0432\u0430\u0440\u044B</a>';
+  CATTREE.forEach(t=>{
+    const nm=t.name.replace(/'/g,"\\'");
+    const on=curGroup===t.name;
+    items+='<a class="catnav-item'+(on?' active':'')+'" onclick="selectGroup(\''+nm+'\')">'+esc(t.name)+'</a>';
+    if(on && (t.subcategories||[]).length){
+      items+='<div class="catnav-subs"><a class="catnav-sub'+(curSub===''?' active':'')+'" onclick="selectSub(\'\')">\u0412\u0441\u0435 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>';
+      (t.subcategories||[]).forEach(s=>{ items+='<a class="catnav-sub'+(curSub===s?' active':'')+'" onclick="selectSub(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
+      items+='</div>';
+    }
+  });
+  return '<div class="facet catnav"><h3>\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438</h3><div class="opts">'+items+'</div></div>';
+}
 function renderSidebar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
   const types=[...new Set(POOL.map(p=>p.type).filter(t=>t&&t!=='\u041F\u0440\u043E\u0447\u0435\u0435'))].sort();
   const mps=['2 \u041C\u041F','3 \u041C\u041F','4 \u041C\u041F','5 \u041C\u041F','6 \u041C\u041F','8 \u041C\u041F'];
   const conns=['PoE','Wi-Fi'];
-  let h='';
-  h+=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands);
-  h+=buildFacet('\u0422\u0438\u043F','type',types);
-  h+=buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps);
-  h+=buildFacet('\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435','conn',conns);
-  h+='<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'+
-     '<input type="number" id="pmin" placeholder="\u043E\u0442" oninput="F.pmin=this.value?+this.value:null;render()">'+
-     '<input type="number" id="pmax" placeholder="\u0434\u043E" oninput="F.pmax=this.value?+this.value:null;render()"></div></div></div>';
+  let h=renderCategoryNav();
+  const facets=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands,true)
+    +buildFacet('\u0422\u0438\u043F','type',types,true)
+    +buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps,false)
+    +buildFacet('\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435','conn',conns,false)
+    +'<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'
+    +'<input type="number" id="pmin" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render()">'
+    +'<input type="number" id="pmax" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render()"></div></div></div>';
+  if(facets) h+='<div class="filters-head">\u0424\u0438\u043B\u044C\u0442\u0440\u044B</div>'+facets;
   h+='<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
   document.getElementById('facets').innerHTML=h;
 }
@@ -106,9 +123,11 @@ function applyFilters(){
   else if(s==='photo')list.sort((a,b)=>(b.img?1:0)-(a.img?1:0));
   return list;
 }
+function imgURL(s){return /^https?:\/\//i.test(s)?s:'images/'+s;}
+function imgFail(el){if(el&&el.parentNode)el.parentNode.innerHTML='<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>';}
 function cardHTML(it){
   const badge=it.promo?'<span class="fire-badge">\uD83D\uDD25 \u0410\u041A\u0426\u0418\u042F</span>':'';
-  const img=(it.img?'<img src="images/'+it.img+'" loading="lazy" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
+  const img=(it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" onerror="imgFail(this)" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
   let price;
   if(it.price){
     const old=(it.promo&&it.oldprice)?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
@@ -127,7 +146,7 @@ function renderPromoStrip(){
   box.style.display='block';
   box.innerHTML='<div class="promo-head"><span class="fire">\uD83D\uDD25</span><h2>\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F</h2><span class="sub">\u0421\u043F\u0435\u0446\u0446\u0435\u043D\u044B \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E</span></div>'+
     '<div class="promo-scroll">'+promos.map(it=>{
-      const img=it.img?'<img src="images/'+it.img+'" loading="lazy" decoding="async">':'<div class="ni">\uD83D\uDCF7</div>';
+      const img=it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" decoding="async" onerror="imgFail(this)">':'<div class="ni">\uD83D\uDCF7</div>';
       const old=it.oldprice?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
       return '<div class="promo-card"><div class="pi"><span class="fire-badge">\uD83D\uDD25</span>'+img+'</div>'+
         '<div class="pc2"><div class="pb">'+(it.brand||'')+'</div><div class="pm">'+it.model+'</div>'+
@@ -176,17 +195,16 @@ function selectGroup(g){
   curGroup=g; curSub='';
   POOL=(g==='Все')?PRODUCTS:PRODUCTS.filter(p=>p.group===g);
   F.brand.clear&&F.brand.clear(); F.type&&F.type.clear&&F.type.clear(); F.mp&&F.mp.clear&&F.mp.clear(); F.conn&&F.conn.clear&&F.conn.clear();
-  document.querySelectorAll('#dirChips .chip').forEach(c=>c.classList.toggle('active', c.dataset.g===g));
-  buildSubChips(g);
   renderSidebar();renderPromoStrip();render();renderActiveTags();
-  window.scrollTo({top:document.querySelector('.toolbar')?.offsetTop-10||0,behavior:'smooth'});
+  if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 // Подкатегории выбранного раздела (фильтр по полю товара cat)
 function selectSub(sub){
   curSub=sub;
   POOL=PRODUCTS.filter(p=>p.group===curGroup && (sub===''||p.cat===sub));
-  document.querySelectorAll('#subChips .chip').forEach(c=>c.classList.toggle('active', c.dataset.s===sub));
   renderSidebar();render();renderActiveTags();
+  if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
 }
 function buildSubChips(g){
   const box=document.getElementById('subChips'); if(!box) return;
@@ -200,14 +218,16 @@ function buildSubChips(g){
 }
 // Построение чипов направлений из дерева видимых категорий (управляются в админке)
 function buildCategoryChips(){
-  const box=document.getElementById('dirChips'); if(!box) return;
   fetch('/api/categories').then(r=>r.json()).then(tree=>{
     CATTREE=Array.isArray(tree)?tree:[];
-    // показываем ВСЕ включённые в админке верхние категории
-    let html='<a class="chip catalog-btn" onclick="openCatalog()">📂 Все категории</a>';
-    html+='<a class="chip active" data-g="Все" onclick="selectGroup(\'Все\')">Все товары</a>';
-    CATTREE.forEach(t=>{ html+='<a class="chip" data-g="'+esc(t.name)+'" onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
-    box.innerHTML=html;
+    const box=document.getElementById('dirChips'); // на прочих страницах верхние чипы ещё могут быть
+    if(box){
+      let html='<a class="chip catalog-btn" onclick="openCatalog()">📂 Все категории</a>';
+      html+='<a class="chip active" data-g="Все" onclick="selectGroup(\'Все\')">Все товары</a>';
+      CATTREE.forEach(t=>{ html+='<a class="chip" data-g="'+esc(t.name)+'" onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
+      box.innerHTML=html;
+    }
+    renderSidebar(); // дерево категорий теперь в сайдбаре
   }).catch(()=>{});
 }
 // Вкладка «Все категории» — полное дерево, выбор любой категории/подкатегории
@@ -243,7 +263,7 @@ function loadCatalog(){
     PRODUCTS=d;
     POOL=curGroup==='\u0412\u0441\u0435'?d:d.filter(p=>p.group===curGroup);
     renderSidebar();renderPromoStrip();render();updateCartUI();renderActiveTags();
-    if(window.PAGE_GROUP==='\u0412\u0441\u0435'||!window.PAGE_GROUP) buildCategoryChips();
+    buildCategoryChips();
     const s=document.getElementById('search'); if(s&&!s.dataset.bound){ s.dataset.bound='1'; let _st; const dr=()=>{clearTimeout(_st);_st=setTimeout(render,180);}; s.addEventListener('input',dr); }
     const so=document.getElementById('sortsel'); if(so&&!so.dataset.bound){ so.dataset.bound='1'; so.addEventListener('change',e=>{F.sort=e.target.value;render();}); }
   }).catch(()=>{

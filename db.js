@@ -58,6 +58,11 @@ CREATE TABLE IF NOT EXISTS categories(
 );
 CREATE INDEX IF NOT EXISTS idx_cat_visible ON categories(visible);
 CREATE INDEX IF NOT EXISTS idx_cat_parent ON categories(parent);
+
+CREATE TABLE IF NOT EXISTS settings(
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
 `);
 
 // мягкая миграция: добити колонки, если базе уже была создана старой версией
@@ -70,6 +75,7 @@ ensureColumn('import_log','deactivated','deactivated INTEGER DEFAULT 0');
 ensureColumn('import_log','skipped','skipped INTEGER DEFAULT 0');
 ensureColumn('orders','cust_name','cust_name TEXT');
 ensureColumn('orders','cust_phone','cust_phone TEXT');
+ensureColumn('orders','done_at','done_at TEXT');
 ensureColumn('categories','parent',"parent TEXT DEFAULT ''");
 
 module.exports=db;
