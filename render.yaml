@@ -9,6 +9,8 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
+      - key: NODE_VERSION
+        value: "20.18.1"             # фиксируем стабильную Node 20 (на Node 26 better-sqlite3 не собирается)
       - key: NODE_ENV
         value: production
       - key: DB_PATH
