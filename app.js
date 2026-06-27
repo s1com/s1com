@@ -82,17 +82,21 @@ function renderCategoryNav(){
 }
 function renderSidebar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
+  const types=[...new Set(POOL.map(p=>p.type).filter(t=>t&&t!=='\u041F\u0440\u043E\u0447\u0435\u0435'))].sort();
+  const mps=['2 \u041C\u041F','3 \u041C\u041F','4 \u041C\u041F','5 \u041C\u041F','6 \u041C\u041F','8 \u041C\u041F'];
   // каталог категорий — в левый сайдбар
   document.getElementById('facets').innerHTML=renderCategoryNav();
-  // фильтры — только универсальные: Бренд и Цена (тип/разрешение задаются через каталог категорий)
+  // фильтры рядом с сортировкой; Тип/Разрешение появляются только если в текущей категории есть такие товары
   const facets=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands,false)
+    +buildFacet('\u0422\u0438\u043F','type',types,false)
+    +buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps,false)
     +'<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'
     +'<input type="number" id="pmin" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render();updateFilterBadge()">'
     +'<input type="number" id="pmax" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render();updateFilterBadge()"></div></div></div>'
     +'<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
   mountFilterDropdown(facets);
 }
-function activeFilterCount(){let n=F.brand.size;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
+function activeFilterCount(){let n=F.brand.size+F.type.size+F.mp.size;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
 function updateFilterBadge(){const b=document.getElementById('filterBtn');if(b){const n=activeFilterCount();b.innerHTML='\u2699 \u0424\u0438\u043B\u044C\u0442\u0440\u044B'+(n?' <span class="fbadge">'+n+'</span>':'');}}
 function mountFilterDropdown(html){
   const sort=document.getElementById('sortsel');
