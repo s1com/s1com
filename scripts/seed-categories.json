@@ -1,0 +1,113 @@
+[
+  {"name":"Видеонаблюдение","parent":"","visible":1,"sort_order":1},
+  {"name":"Сетевое оборудование","parent":"","visible":1,"sort_order":2},
+  {"name":"Пожарная безопасность","parent":"","visible":1,"sort_order":3},
+  {"name":"СКУД и домофония","parent":"","visible":1,"sort_order":4},
+
+  {"name":"Системы безопасности","parent":"","visible":0,"sort_order":10},
+  {"name":"Системы видеонаблюдения","parent":"Системы безопасности","visible":0,"sort_order":1},
+  {"name":"IP видеонаблюдение","parent":"Системы безопасности","visible":0,"sort_order":2},
+  {"name":"Аналоговое и HD видеонаблюдение","parent":"Системы безопасности","visible":0,"sort_order":3},
+  {"name":"Охранные и пожарные системы","parent":"Системы безопасности","visible":0,"sort_order":4},
+  {"name":"Системы контроля доступа (СКУД)","parent":"Системы безопасности","visible":0,"sort_order":5},
+  {"name":"Домофония","parent":"Системы безопасности","visible":0,"sort_order":6},
+  {"name":"Системы оповещения и аудиотрансляция","parent":"Системы безопасности","visible":0,"sort_order":7},
+
+  {"name":"Сетевое и серверное оборудование, СХД","parent":"","visible":0,"sort_order":11},
+  {"name":"Активное сетевое оборудование","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":1},
+  {"name":"Коммутаторы","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":2},
+  {"name":"Маршрутизаторы","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":3},
+  {"name":"Wi-Fi оборудование","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":4},
+  {"name":"GSM/LTE модемы и роутеры","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":5},
+  {"name":"VoIP оборудование","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":6},
+  {"name":"Трансиверы и оптические модули","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":7},
+  {"name":"Системы хранения данных (СХД)","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":8},
+  {"name":"HDD и SSD","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":9},
+  {"name":"Серверы и комплектующие","parent":"Сетевое и серверное оборудование, СХД","visible":0,"sort_order":10},
+
+  {"name":"Кабельные системы","parent":"","visible":0,"sort_order":12},
+  {"name":"Кабель витая пара","parent":"Кабельные системы","visible":0,"sort_order":1},
+  {"name":"Коннекторы и аксессуары","parent":"Кабельные системы","visible":0,"sort_order":2},
+  {"name":"Гофротрубы, металлорукав, трубы","parent":"Кабельные системы","visible":0,"sort_order":3},
+  {"name":"Кабельные лотки","parent":"Кабельные системы","visible":0,"sort_order":4},
+  {"name":"Оптоволоконная сеть","parent":"Кабельные системы","visible":0,"sort_order":5},
+  {"name":"Телекоммуникационные шкафы","parent":"Кабельные системы","visible":0,"sort_order":6},
+
+  {"name":"Источники бесперебойного питания (ИБП)","parent":"","visible":0,"sort_order":13},
+  {"name":"ИБП линейно-интерактивные","parent":"Источники бесперебойного питания (ИБП)","visible":0,"sort_order":1},
+  {"name":"Управление электропитанием","parent":"Источники бесперебойного питания (ИБП)","visible":0,"sort_order":2},
+
+  {"name":"Носители информации","parent":"","visible":0,"sort_order":14},
+  {"name":"USB-накопители","parent":"Носители информации","visible":0,"sort_order":1},
+  {"name":"Карты памяти","parent":"Носители информации","visible":0,"sort_order":2},
+
+  {"name":"Компьютеры и комплектующие","parent":"","visible":0,"sort_order":20},
+  {"name":"Системные блоки","parent":"Компьютеры и комплектующие","visible":0,"sort_order":1},
+  {"name":"Ноутбуки","parent":"Компьютеры и комплектующие","visible":0,"sort_order":2},
+  {"name":"Процессоры (CPU)","parent":"Компьютеры и комплектующие","visible":0,"sort_order":3},
+  {"name":"Материнские платы","parent":"Компьютеры и комплектующие","visible":0,"sort_order":4},
+  {"name":"Видеокарты","parent":"Компьютеры и комплектующие","visible":0,"sort_order":5},
+  {"name":"Оперативная память","parent":"Компьютеры и комплектующие","visible":0,"sort_order":6},
+  {"name":"Корпуса и блоки питания","parent":"Компьютеры и комплектующие","visible":0,"sort_order":7},
+  {"name":"Охлаждение","parent":"Компьютеры и комплектующие","visible":0,"sort_order":8},
+  {"name":"Мониторы","parent":"Компьютеры и комплектующие","visible":0,"sort_order":9},
+  {"name":"Периферия и устройства ввода","parent":"Компьютеры и комплектующие","visible":0,"sort_order":10},
+
+  {"name":"Коммерческая визуализация","parent":"","visible":0,"sort_order":21},
+  {"name":"Интерактивные панели","parent":"Коммерческая визуализация","visible":0,"sort_order":1},
+  {"name":"LED-экраны","parent":"Коммерческая визуализация","visible":0,"sort_order":2},
+
+  {"name":"Демонстрационное оборудование","parent":"","visible":0,"sort_order":22},
+  {"name":"Проекторы","parent":"Демонстрационное оборудование","visible":0,"sort_order":1},
+
+  {"name":"Решения для печати","parent":"","visible":0,"sort_order":23},
+  {"name":"Принтеры и МФУ","parent":"Решения для печати","visible":0,"sort_order":1},
+  {"name":"Картриджи и комплектующие","parent":"Решения для печати","visible":0,"sort_order":2},
+
+  {"name":"Решения для 3D-печати","parent":"","visible":0,"sort_order":24},
+  {"name":"3D-принтеры","parent":"Решения для 3D-печати","visible":0,"sort_order":1},
+  {"name":"Расходные материалы для 3D","parent":"Решения для 3D-печати","visible":0,"sort_order":2},
+
+  {"name":"Наушники и микрофоны","parent":"","visible":0,"sort_order":25},
+  {"name":"Акустические системы","parent":"","visible":0,"sort_order":26},
+  {"name":"Фото и видеотехника","parent":"","visible":0,"sort_order":27},
+
+  {"name":"Мобильные телефоны и аксессуары","parent":"","visible":0,"sort_order":28},
+  {"name":"Мобильные телефоны","parent":"Мобильные телефоны и аксессуары","visible":0,"sort_order":1},
+  {"name":"Зарядные устройства","parent":"Мобильные телефоны и аксессуары","visible":0,"sort_order":2},
+  {"name":"Портативные зарядные устройства","parent":"Мобильные телефоны и аксессуары","visible":0,"sort_order":3},
+
+  {"name":"Планшеты","parent":"","visible":0,"sort_order":29},
+
+  {"name":"Электротехническое оборудование и автоматизация","parent":"","visible":0,"sort_order":30},
+  {"name":"Автоматические выключатели","parent":"Электротехническое оборудование и автоматизация","visible":0,"sort_order":1},
+  {"name":"Щитовое оборудование","parent":"Электротехническое оборудование и автоматизация","visible":0,"sort_order":2},
+  {"name":"Преобразователи частоты","parent":"Электротехническое оборудование и автоматизация","visible":0,"sort_order":3},
+  {"name":"Контроллеры и автоматизация","parent":"Электротехническое оборудование и автоматизация","visible":0,"sort_order":4},
+
+  {"name":"Освещение","parent":"","visible":0,"sort_order":31},
+  {"name":"Лампы","parent":"Освещение","visible":0,"sort_order":1},
+  {"name":"Светильники и панели","parent":"Освещение","visible":0,"sort_order":2},
+  {"name":"Фонари","parent":"Освещение","visible":0,"sort_order":3},
+
+  {"name":"Бытовая техника","parent":"","visible":0,"sort_order":40},
+  {"name":"Техника для кухни","parent":"Бытовая техника","visible":0,"sort_order":1},
+  {"name":"Техника для дома","parent":"Бытовая техника","visible":0,"sort_order":2},
+  {"name":"Красота и здоровье","parent":"Бытовая техника","visible":0,"sort_order":3},
+  {"name":"Посуда","parent":"Бытовая техника","visible":0,"sort_order":4},
+
+  {"name":"Отдых, пляж, туризм","parent":"","visible":0,"sort_order":41},
+  {"name":"Бассейны","parent":"Отдых, пляж, туризм","visible":0,"sort_order":1},
+  {"name":"Аксессуары для бассейнов","parent":"Отдых, пляж, туризм","visible":0,"sort_order":2},
+  {"name":"Батуты и игровые комплексы","parent":"Отдых, пляж, туризм","visible":0,"sort_order":3},
+  {"name":"Пляжные товары","parent":"Отдых, пляж, туризм","visible":0,"sort_order":4},
+  {"name":"Шатры, тенты, палатки","parent":"Отдых, пляж, туризм","visible":0,"sort_order":5},
+
+  {"name":"Детские товары","parent":"","visible":0,"sort_order":42},
+  {"name":"Игрушки","parent":"Детские товары","visible":0,"sort_order":1},
+  {"name":"Детские игровые центры","parent":"Детские товары","visible":0,"sort_order":2},
+
+  {"name":"Летательные аппараты (дроны)","parent":"","visible":0,"sort_order":43},
+  {"name":"Дроны","parent":"Летательные аппараты (дроны)","visible":0,"sort_order":1},
+  {"name":"Комплектующие для дронов","parent":"Летательные аппараты (дроны)","visible":0,"sort_order":2}
+]

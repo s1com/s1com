@@ -1,0 +1,39 @@
+# Конфиг для развёртывания на Render.com (бесплатно/от $7).
+# Создайте сервис из репозитория — Render подхватит этот файл.
+services:
+  - type: web
+    name: servis-catalog
+    runtime: node
+    plan: starter            # для постоянного диска нужен платный план (~$7/мес)
+    buildCommand: npm ci || npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/data.sqlite     # база на постоянном диске (не теряется при передеплое)
+      - key: IMAGES_DIR
+        value: /data/images          # фото на постоянном диске
+      - key: SEED_ON_EMPTY
+        value: "true"                # при первом запуске загрузить стартовый каталог
+      - key: ADMIN_PASSWORD
+        sync: false                  # задать в дашборде Render
+      - key: JWT_SECRET
+        generateValue: true          # Render сгенерирует случайно
+      - key: IMPORT_TOKEN
+        generateValue: true
+      - key: SITE_URL
+        sync: false                  # https://ваш-домен
+      - key: INDEXNOW_KEY
+        sync: false
+      - key: YM_ID
+        sync: false
+      - key: YANDEX_VERIFICATION
+        sync: false
+      - key: GOOGLE_VERIFICATION
+        sync: false
+    disk:
+      name: data
+      mountPath: /data               # постоянное хранилище для SQLite и фото
+      sizeGB: 1
