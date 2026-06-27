@@ -172,7 +172,8 @@ function pickImage(el) {
       return 'https://al-style.kz/' + u.replace(/^\.?\//, '');                  // имя файла
     }
   }
-  return ''; // у Al-Style нет фото → на сайте «фото по запросу»
+  const code = String(el.article || '').trim();
+  return code ? `https://img.al-style.kz/${code.padStart(5, '0')}_01.jpg` : ''; // шаблон Al-Style (суффикс _01); битую сайт заменит плейсхолдером
 }
 function enrich(group, catName) { // лёгкое обогащение для видеонаблюдения
   const out = {};
