@@ -314,6 +314,38 @@ app.post('/api/stock', importLimiter, (req, res) => {
   res.json({ ok: true, received: items.length, updated, missing });
 });
 
+// ---------- API СИНХРОНИЗАЦИИ ДЕРЕВА КАТЕГОРИЙ (полная замена) ----------
+// Тело: { groups: [ { name, subs: [ ... ] } ] }. Заменяет таблицу categories целиком.
+app.post('/api/categories-sync', importLimiter, (req, res) => {
+  const h = req.headers.authorization || '';
+  const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (!safeEqual(t, IMPORT_TOKEN)) return res.status(401).json({ error: 'Неверный токен выгрузки' });
+
+  const { groups } = req.body || {};
+  if (!Array.isArray(groups)) return res.status(400).json({ error: 'groups должен быть массивом' });
+
+  const now = new Date().toISOString();
+  const ins = db.prepare('INSERT OR IGNORE INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,1,?,?)');
+  let tops = 0, subs = 0;
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM categories').run();
+    let sg = 1;
+    for (const g of groups) {
+      const name = clamp((g || {}).name || '', 100).trim();
+      if (!name) continue;
+      ins.run(name, '', sg++, now); tops++;
+      let ss = 1;
+      for (const s of (g.subs || [])) {
+        const sub = clamp(s || '', 100).trim();
+        if (sub && sub !== name) { ins.run(sub, name, ss++, now); subs++; }
+      }
+    }
+  });
+  try { tx(); }
+  catch (e) { console.error('[categories-sync] ошибка:', e.message); return res.status(500).json({ error: 'Ошибка обновления категорий' }); }
+  res.json({ ok: true, tops, subs });
+});
+
 // ---------- АДМИНКА: авторизация ----------
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   if (!verifyPassword((req.body || {}).password || '', ADMIN_HASH)) {
