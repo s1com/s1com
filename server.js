@@ -277,6 +277,43 @@ app.post('/api/import', importLimiter, (req, res) => {
   res.json({ ok: true, received: products.length, created, updated, deactivated, skipped });
 });
 
+// ---------- API БЫСТРОГО ОБНОВЛЕНИЯ ОСТАТКОВ (и опц. цены) ----------
+// Только обновляет существующие товары по sku. НИЧЕГО не создаёт. Для частой (ежечасной) синхронизации.
+// Тело: { items: [ { sku, stock, price? } ... ] }. price обновляется лишь если задан положительным числом.
+app.post('/api/stock', importLimiter, (req, res) => {
+  const h = req.headers.authorization || '';
+  const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (!safeEqual(t, IMPORT_TOKEN)) return res.status(401).json({ error: 'Неверный токен выгрузки' });
+
+  const { items } = req.body || {};
+  if (!Array.isArray(items)) return res.status(400).json({ error: 'items должен быть массивом' });
+  if (items.length > MAX_IMPORT) return res.status(413).json({ error: `Слишком много позиций за раз (макс ${MAX_IMPORT})` });
+
+  const now = new Date().toISOString();
+  const updStock      = db.prepare('UPDATE products SET stock=@stock, updated_at=@now WHERE sku=@sku');
+  const updStockPrice = db.prepare('UPDATE products SET stock=@stock, price=@price, updated_at=@now WHERE sku=@sku');
+  let updated = 0, missing = 0;
+
+  const tx = db.transaction(list => {
+    for (const raw of list) {
+      const sku = clamp((raw || {}).sku || '', 100).trim();
+      if (!sku) { missing++; continue; }
+      const stock = Math.max(0, toInt(raw.stock));
+      const price = toInt(raw.price);
+      const r = (price > 0)
+        ? updStockPrice.run({ sku, stock, price, now })
+        : updStock.run({ sku, stock, now });
+      if (r.changes > 0) updated++; else missing++;
+    }
+  });
+  try { tx(items); }
+  catch (e) { console.error('[stock] ошибка транзакции:', e.message); return res.status(500).json({ error: 'Ошибка обработки остатков' }); }
+
+  db.prepare('INSERT INTO import_log(ts,source,received,created,updated,deactivated,skipped,note) VALUES(?,?,?,?,?,?,?,?)')
+    .run(now, 'al-style-stock', items.length, 0, updated, 0, missing, 'stock');
+  res.json({ ok: true, received: items.length, updated, missing });
+});
+
 // ---------- АДМИНКА: авторизация ----------
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   if (!verifyPassword((req.body || {}).password || '', ADMIN_HASH)) {
