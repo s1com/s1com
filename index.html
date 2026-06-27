@@ -1,0 +1,319 @@
+<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Админ — Сервис.com</title>
+<style>
+body{font-family:-apple-system,'Segoe UI',Arial,sans-serif;background:#F6F6F7;color:#2A2A2C;margin:0}
+.bar{background:#2A2A2C;color:#fff;padding:13px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:10}
+.bar h1{font-size:16px}
+.bar .act{display:flex;gap:8px;flex-wrap:wrap}
+button{cursor:pointer;border:none;border-radius:8px;font-weight:700;font-size:13px;padding:9px 14px}
+.b1{background:#E02128;color:#fff}.b2{background:#25D366;color:#fff}.b3{background:#4a4a4d;color:#fff}.b4{background:#BF8F00;color:#fff}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+.gate{max-width:340px;margin:80px auto;background:#fff;padding:32px;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.15);text-align:center}
+.gate h2{margin-bottom:14px}.gate input{width:100%;padding:12px;border:2px solid #E8E8E8;border-radius:10px;font-size:16px;margin-bottom:12px}
+.gate button{width:100%;background:#E02128;color:#fff;padding:12px;font-size:15px}
+.gate .err{color:#E02128;font-size:13px;margin-top:8px;min-height:16px}
+.hide{display:none}
+.tools{background:#fff;border-radius:12px;padding:14px 16px;margin-bottom:14px;display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end}
+.tool{display:flex;flex-direction:column;gap:5px}
+.tool label{font-size:11px;color:#888;font-weight:700;text-transform:uppercase}
+.tool input,.tool select{padding:8px 10px;border:1.5px solid #E8E8E8;border-radius:8px;font-size:13px}
+.search{width:100%;padding:11px 15px;border:2px solid #E8E8E8;border-radius:10px;font-size:15px;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;background:#fff;border-radius:10px;overflow:hidden;font-size:12.5px}
+th{background:#2A2A2C;color:#fff;padding:9px;text-align:left;font-size:11.5px;position:sticky;top:52px}
+td{padding:6px 8px;border-bottom:1px solid #eee;vertical-align:top}
+td input,td select,td textarea{width:100%;border:1px solid #ddd;border-radius:6px;padding:5px;font-size:12px;font-family:inherit}
+td textarea{resize:vertical;min-height:32px}
+.cd button{background:#fff;border:1px solid #E02128;color:#E02128;border-radius:6px;padding:4px 8px}
+.hint{background:#FFF8E1;border-left:4px solid #BF8F00;padding:11px 15px;border-radius:8px;font-size:12.5px;margin-bottom:14px;line-height:1.6}
+.foot{margin:16px 0 40px;color:#888;font-size:13px;text-align:center}
+.log{background:#fff;border-radius:10px;padding:12px 16px;margin-top:16px;font-size:12.5px}
+.log h3{font-size:14px;margin-bottom:8px}.log table{font-size:12px}
+</style></head><body>
+
+<div class="gate" id="gate">
+  <h2>Админ-панель</h2>
+  <input type="password" id="pass" placeholder="Пароль" onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()">Войти</button>
+  <div class="err" id="err"></div>
+</div>
+
+<div id="appui" class="hide">
+<div class="bar">
+  <h1>🛠 Каталог Сервис.com</h1>
+  <div class="act">
+    <button class="b3" onclick="showDash()" style="background:#0d7a6f">📊 Дашборд</button>
+    <button class="b1" onclick="addRow()">+ Товар</button>
+    <button class="b3" onclick="document.getElementById('impFile').click()" style="background:#0a8a5f">📥 Импорт из Excel/CSV</button>
+    <input type="file" id="impFile" accept=".xlsx,.xls,.csv" style="display:none">
+    <button class="b2" onclick="saveAll()">💾 Сохранить всё</button>
+    <button class="b2" onclick="showOrders()" style="background:#1a7fd4">📋 Заявки <span id="ordBadge" style="background:#fff;color:#1a7fd4;border-radius:10px;padding:0 6px;font-size:11px;display:none"></span></button>
+    <button class="b3" onclick="showCats()" style="background:#6d3a9e">🗂 Категории</button>
+    <button class="b4" onclick="showLog()">📥 Журнал выгрузок 1С</button>
+    <button class="b3" onclick="logout()">Выйти</button>
+  </div>
+</div>
+<div class="wrap">
+  <div class="hint">
+    <b>Массовое изменение цен:</b> укажите процент (например, 5 или −5), при желании выберите бренд/направление, нажмите «Применить». 
+    <b>Изменения сохраняются на сервере сразу</b> (кнопки в таблице) — отдельная заливка файлов не нужна, в отличие от статической версии.
+  </div>
+  <div class="tools">
+    <div class="tool"><label>Изменить цены, %</label><input type="number" id="pct" placeholder="напр. 5 или -5" style="width:120px"></div>
+    <div class="tool"><label>Только бренд</label><select id="bpBrand"><option value="">все</option></select></div>
+    <div class="tool"><label>Только направление</label><select id="bpGroup"><option value="">все</option></select></div>
+    <div class="tool"><label>Округлить до</label><select id="bpRound"><option value="">нет</option><option value="10">10 ₸</option><option value="100">100 ₸</option></select></div>
+    <button class="b4" onclick="bulkPrice()">Применить к ценам</button>
+  </div>
+  <input class="search" id="q" placeholder="Поиск по таблице…" oninput="render()">
+  <table><thead><tr>
+    <th style="width:85px">Направление</th><th style="width:70px">Бренд</th><th style="width:120px">Модель</th>
+    <th>Описание</th><th style="width:70px">Хар-ки</th><th style="width:75px">Цена ₸</th>
+    <th style="width:50px">🔥</th><th style="width:75px">Старая</th><th style="width:60px">Остаток</th>
+    <th style="width:90px">Фото</th><th style="width:34px"></th>
+  </tr></thead><tbody id="rows"></tbody></table>
+  <div class="foot" id="cnt"></div>
+  <div class="log hide" id="logBox"></div>
+  <div class="log hide" id="ordBox"></div>
+  <div class="log hide" id="catBox"></div>
+  <div class="log hide" id="dashBox"></div>
+</div>
+</div>
+
+<script>
+let TOKEN=sessionStorage.getItem('admtoken')||'';
+let DATA=[],DIRTY=new Set();
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  let GROUPS=["Видеонаблюдение","Сетевое оборудование","Пожарная безопасность","СКУД и домофония"];
+const H=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
+
+if(TOKEN) showApp();
+
+async function login(){
+  const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pass').value})});
+  if(r.ok){const d=await r.json();TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);showApp();}
+  else document.getElementById('err').textContent='Неверный пароль';
+}
+function logout(){sessionStorage.removeItem('admtoken');location.reload();}
+async function showApp(){
+  document.getElementById('gate').classList.add('hide');
+  document.getElementById('appui').classList.remove('hide');
+  await load();
+  loadOrdersBadge();
+  try{const cs=await (await fetch('/api/admin/categories',{headers:H()})).json();if(cs&&cs.length)GROUPS=cs.map(c=>c.name);}catch(e){}
+}
+async function load(){
+  const r=await fetch('/api/admin/products',{headers:H()});
+  if(r.status===401){logout();return;}
+  DATA=await r.json();DIRTY.clear();
+  const bs=[...new Set(DATA.map(p=>p.brand).filter(Boolean))].sort();
+  document.getElementById('bpBrand').innerHTML='<option value="">все</option>'+bs.map(b=>`<option>${b}</option>`).join('');
+  document.getElementById('bpGroup').innerHTML='<option value="">все</option>'+GROUPS.map(g=>`<option>${g}</option>`).join('');
+  render();
+}
+function upd(i,k,v){if(k==='price'||k==='oldprice'||k==='stock')v=parseInt(v)||0;DATA[i][k]=v;DIRTY.add(DATA[i].id);}
+function render(){
+  const q=(document.getElementById('q').value||'').toLowerCase();
+  const list=DATA.map((it,i)=>({it,i})).filter(({it})=>!q||(it.model+it.brand+it.desc+it.cat).toLowerCase().includes(q));
+  document.getElementById('rows').innerHTML=list.map(({it,i})=>`<tr>
+    <td><select onchange="upd(${i},'group',this.value)">${GROUPS.map(g=>`<option ${g===it.group?'selected':''}>${g}</option>`).join('')}</select></td>
+    <td><input value="${esc(it.brand)}" onchange="upd(${i},'brand',this.value)"></td>
+    <td><input value="${esc(it.model)}" onchange="upd(${i},'model',this.value)"></td>
+    <td><textarea onchange="upd(${i},'desc',this.value)">${esc(it.desc)}</textarea></td>
+    <td><input value="${esc(it.res)}" onchange="upd(${i},'res',this.value)"></td>
+    <td><input type="number" value="${it.price||0}" onchange="upd(${i},'price',this.value)"></td>
+    <td style="text-align:center"><input type="checkbox" ${it.promo?'checked':''} onchange="upd(${i},'promo',this.checked)" style="width:18px;height:18px;accent-color:#E02128"></td>
+    <td><input type="number" value="${it.oldprice||0}" onchange="upd(${i},'oldprice',this.value)"></td>
+    <td><input type="number" value="${it.stock||0}" onchange="upd(${i},'stock',this.value)"></td>
+    <td><input value="${esc(it.img)}" onchange="upd(${i},'img',this.value)" placeholder="файл/URL" style="width:calc(100% - 30px)"><button onclick="uploadImg(${i})" title="Загрузить фото" style="width:26px;padding:4px;background:#4a4a4d;color:#fff;border-radius:5px;font-size:13px">⬆</button></td>
+    <td class="cd"><button onclick="del(${i})">✕</button></td>
+  </tr>`).join('');
+  document.getElementById('cnt').textContent='Товаров: '+DATA.length+(DIRTY.size?' · несохранённых изменений: '+DIRTY.size:'');
+}
+async function uploadImg(i){
+  const inp=document.createElement('input');inp.type='file';inp.accept='image/png,image/jpeg,image/webp';
+  inp.onchange=async()=>{
+    const f=inp.files[0];if(!f)return;
+    if(f.size>3*1024*1024){alert('Файл больше 3 МБ');return;}
+    const data=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(f);});
+    const r=await fetch('/api/admin/upload',{method:'POST',headers:H(),body:JSON.stringify({filename:f.name,data})});
+    const d=await r.json();
+    if(r.ok){DATA[i].img=d.img;DIRTY.add(DATA[i].id);render();alert('Фото загружено: '+d.img+'\nНе забудьте «Сохранить всё».');}
+    else alert('Ошибка загрузки: '+(d.error||''));
+  };
+  inp.click();
+}
+async function saveAll(){
+  let ok=0;
+  for(const id of [...DIRTY]){
+    const it=DATA.find(x=>x.id===id);if(!it)continue;
+    const r=await fetch('/api/admin/products/'+id,{method:'PUT',headers:H(),body:JSON.stringify(it)});
+    if(r.ok)ok++;
+  }
+  DIRTY.clear();render();alert('Сохранено изменений: '+ok);
+}
+document.addEventListener('DOMContentLoaded',()=>{const el=document.getElementById('impFile');if(el)el.addEventListener('change',importFile);});
+async function importFile(e){
+  const f=e.target.files[0];if(!f)return;e.target.value='';
+  if(f.size>10*1024*1024){alert('Файл больше 10 МБ');return;}
+  if(!confirm('Загрузить товары из файла «'+f.name+'»?\nСуществующие (по артикулу) обновятся, новые добавятся.'))return;
+  const data=await new Promise(res=>{const r=new FileReader();r.onload=()=>res(r.result);r.readAsDataURL(f);});
+  const r=await fetch('/api/admin/import-file',{method:'POST',headers:H(),body:JSON.stringify({filename:f.name,data})});
+  const d=await r.json();
+  if(r.ok){alert('Импорт завершён:\n  создано: '+d.created+'\n  обновлено: '+d.updated+'\n  пропущено: '+d.skipped+'\n  всего строк: '+d.total);await load();}
+  else alert('Ошибка импорта: '+(d.error||''));
+}
+async function addRow(){
+  const r=await fetch('/api/admin/products',{method:'POST',headers:H(),body:JSON.stringify({group:GROUPS[0],model:'Новый товар'})});
+  if(r.ok)await load();
+}
+async function del(i){
+  if(!confirm('Удалить товар?'))return;
+  const r=await fetch('/api/admin/products/'+DATA[i].id,{method:'DELETE',headers:H()});
+  if(r.ok)await load();
+}
+async function bulkPrice(){
+  const pct=parseFloat(document.getElementById('pct').value);
+  if(isNaN(pct)){alert('Укажите процент');return;}
+  if(!confirm('Изменить цены на '+pct+'%?'))return;
+  const body={pct,brand:document.getElementById('bpBrand').value||undefined,group:document.getElementById('bpGroup').value||undefined,round:+document.getElementById('bpRound').value||undefined};
+  const r=await fetch('/api/admin/bulk-price',{method:'POST',headers:H(),body:JSON.stringify(body)});
+  const d=await r.json();
+  if(r.ok){alert('Цены изменены у '+d.changed+' товаров');await load();}else alert('Ошибка: '+(d.error||''));
+}
+
+async function loadOrdersBadge(){
+  try{const r=await fetch('/api/admin/orders?status=new',{headers:H()});const d=await r.json();
+    const b=document.getElementById('ordBadge');if(d.counts&&d.counts.new>0){b.textContent=d.counts.new;b.style.display='inline';}else b.style.display='none';}catch(e){}
+}
+
+
+async function showDash(){
+  ['logBox','ordBox','catBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  const box=document.getElementById('dashBox');box.classList.toggle('hide');if(box.classList.contains('hide'))return;
+  box.innerHTML='<p style="color:#888">Загрузка статистики…</p>';
+  const s=await (await fetch('/api/admin/stats',{headers:H()})).json();
+  const card=(label,val,color)=>'<div style="flex:1;min-width:130px;background:#fff;border:1px solid #eee;border-radius:12px;padding:16px"><div style="font-size:28px;font-weight:800;color:'+(color||'#222')+'">'+val+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+label+'</div></div>';
+  const byGroup=s.byGroup.map(g=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:14px"><span>'+esc(g.grp||'(без категории)')+'</span><b>'+g.c+'</b></div>').join('');
+  const demand=s.topDemand.length?s.topDemand.map((d,i)=>'<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f0f0f0;font-size:14px"><span>'+(i+1)+'. '+esc(d.name)+'</span><b>'+d.qty+' шт</b></div>').join(''):'<p style="color:#aaa;font-size:13px">Заявок пока нет</p>';
+  box.innerHTML='<h3>📊 Дашборд</h3>'+
+    '<div style="font-size:13px;color:#888;margin-bottom:8px">Товары</div>'+
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">'+
+      card('Всего товаров',s.products.total,'#1a7fd4')+card('В наличии',s.products.inStock,'#1a9e4b')+card('Акции',s.products.promo,'#E02128')+card('Без цены',s.products.noPrice,'#d98800')+card('Категорий видно',s.categoriesVisible,'#6d3a9e')+
+    '</div>'+
+    '<div style="font-size:13px;color:#888;margin-bottom:8px">Заявки</div>'+
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">'+
+      card('Новых',s.orders.new,'#E02128')+card('За 7 дней',s.orders.week,'#1a7fd4')+card('Всего',s.orders.total,'#222')+
+    '</div>'+
+    '<div style="display:flex;gap:18px;flex-wrap:wrap">'+
+      '<div style="flex:1;min-width:240px"><b style="font-size:14px">Товары по направлениям</b>'+byGroup+'</div>'+
+      '<div style="flex:1;min-width:240px"><b style="font-size:14px">Чаще всего запрашивают</b>'+demand+'</div>'+
+    '</div>';
+}
+function exportOrders(){
+  // скачивание файла с авторизацией
+  fetch('/api/admin/orders/export',{headers:H()}).then(r=>r.blob()).then(b=>{
+    const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='zayavki.xlsx';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(u);
+  }).catch(()=>alert('Не удалось выгрузить'));
+}
+
+async function showCats(){
+  const box=document.getElementById('catBox');['logBox','ordBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  box.classList.toggle('hide'); if(box.classList.contains('hide'))return;
+  await renderCats();
+}
+async function renderCats(){
+  const box=document.getElementById('catBox');
+  const r=await fetch('/api/admin/categories',{headers:H()}); const cats=await r.json();
+  const tops=cats.filter(c=>!c.parent);
+  function rowHtml(c,isSub){
+    const nm=c.name.replace(/'/g,"\\'");
+    const actions = isSub
+      ? '<button onclick="catDel('+c.id+',\''+nm+'\','+c.products+')" title="Удалить">✕</button>'
+      : '<button onclick="catAddSub('+c.id+',\''+nm+'\')" style="background:#eef;border:1px solid #ccd;color:#446;border-radius:6px;width:26px;height:26px;margin-right:4px" title="Подкатегория">+</button><button onclick="catDel('+c.id+',\''+nm+'\','+c.products+')" title="Удалить">✕</button>';
+    const nameStyle = isSub ? 'width:88%' : 'width:88%;font-weight:700';
+    const prefix = isSub ? '<span style="color:#bbb">└ </span>' : '';
+    return '<tr style="'+(isSub?'background:#fbfbfd':'')+'">'+
+      '<td style="text-align:center"><input type="checkbox" '+(c.visible?'checked':'')+' onchange="catSet('+c.id+',\'visible\',this.checked)" style="width:18px;height:18px;accent-color:#1a9e4b" title="Показывать на сайте"></td>'+
+      '<td style="'+(isSub?'padding-left:28px':'')+'">'+prefix+'<input value="'+esc(c.name)+'" onchange="catSet('+c.id+',\'name\',this.value)" style="'+nameStyle+'"></td>'+
+      '<td><input type="number" value="'+c.sort_order+'" onchange="catSet('+c.id+',\'sort_order\',this.value)" style="width:64px" title="Порядок"></td>'+
+      '<td style="text-align:center;color:'+(c.products>0?'#1a9e4b':'#bbb')+';font-weight:700">'+c.products+'</td>'+
+      '<td class="cd">'+actions+'</td></tr>';
+  }
+  let rows='';
+  tops.forEach(t=>{
+    rows+=rowHtml(t,false);
+    cats.filter(c=>c.parent===t.name).forEach(sub=>{ rows+=rowHtml(sub,true); });
+  });
+  box.innerHTML='<h3>🗂 Категории сайта (дерево)</h3>'+
+    '<p style="font-size:12.5px;color:#666;margin-bottom:10px">Галочка «показывать» управляет видимостью на сайте. Подкатегории (└) показываются под разделом вторым уровнем фильтра. «+» у раздела — добавить подкатегорию. «Товаров» — позиций в категории (пустые на сайте не покажут товаров, наполнятся из Al-Style). Переименование переносит товары.</p>'+
+    '<div style="display:flex;gap:8px;margin-bottom:12px"><input id="newCat" placeholder="Новый верхний раздел" style="flex:1;padding:9px;border:1.5px solid #ddd;border-radius:8px"><button onclick="catAdd()" style="background:#1a9e4b;color:#fff;padding:9px 16px">+ Добавить раздел</button></div>'+
+    '<table><thead><tr><th style="width:90px">Показ</th><th>Название (раздел / └ подкатегория)</th><th style="width:70px">Порядок</th><th style="width:70px">Товаров</th><th style="width:80px"></th></tr></thead><tbody>'+rows+'</tbody></table>';
+}
+async function catAddSub(parentId,parentName){
+  const name=prompt('Название подкатегории в разделе «'+parentName+'»:'); if(!name||!name.trim())return;
+  const r=await fetch('/api/admin/categories',{method:'POST',headers:H(),body:JSON.stringify({name:name.trim(),parent:parentName,visible:true})});
+  const d=await r.json(); if(r.ok)await renderCats(); else alert('Ошибка: '+(d.error||''));
+}
+async function catSet(id,field,val){
+  if(field==='sort_order')val=parseInt(val)||100;
+  const body={}; body[field]=(field==='visible')?val:(field==='sort_order'?val:val);
+  await fetch('/api/admin/categories/'+id,{method:'PUT',headers:H(),body:JSON.stringify(body)});
+  if(field==='name')await renderCats();
+}
+async function catAdd(){
+  const name=document.getElementById('newCat').value.trim(); if(!name){alert('Введите название');return;}
+  const r=await fetch('/api/admin/categories',{method:'POST',headers:H(),body:JSON.stringify({name,visible:true})});
+  const d=await r.json(); if(r.ok){document.getElementById('newCat').value='';await renderCats();}else alert('Ошибка: '+(d.error||''));
+}
+async function catDel(id,name,count){
+  if(count>0){ if(!confirm('В категории «'+name+'» '+count+' товаров. Удалить категорию? Товары останутся, но без категории.'))return;
+    await fetch('/api/admin/categories/'+id+'?force=1',{method:'DELETE',headers:H()});
+  } else { if(!confirm('Удалить категорию «'+name+'»?'))return;
+    await fetch('/api/admin/categories/'+id,{method:'DELETE',headers:H()});
+  }
+  await renderCats();
+}
+
+async function showOrders(){
+  const box=document.getElementById('ordBox');const log=document.getElementById('logBox');if(log)log.classList.add('hide');
+  box.classList.remove('hide');
+  box.scrollIntoView({behavior:'smooth',block:'start'});
+  box.innerHTML='<p style="color:#888;padding:10px">Загрузка заявок…</p>';
+  try{
+    const r=await fetch('/api/admin/orders',{headers:H()});
+    if(!r.ok) throw new Error('сервер ответил '+r.status);
+    const d=await r.json();
+    const fmtd=ts=>new Date(ts).toLocaleString('ru-RU');
+    box.innerHTML='<h3>📋 Заявки с сайта ('+d.counts.new+' новых из '+d.counts.total+') <button onclick="showOrders()" style="background:#eee;color:#333;padding:6px 12px;font-size:13px;margin-left:6px">↻ Обновить</button> <button onclick="exportOrders()" style="background:#0a8a5f;color:#fff;padding:6px 12px;font-size:13px;margin-left:4px">⬇ Экспорт в Excel</button> <button onclick="document.getElementById(\'ordBox\').classList.add(\'hide\')" style="background:#fff;border:1px solid #ccc;color:#666;padding:6px 12px;font-size:13px;margin-left:4px">✕ Закрыть</button></h3>'+
+      (d.orders.length?d.orders.map(o=>{
+        const items=(o.items||[]).map(i=>esc((i.brand?i.brand+' ':'')+i.model)+' — <b>'+i.qty+' шт</b>').join('<br>');
+        const isNew=o.status==='new';
+        return '<div style="border:1px solid #eee;border-radius:8px;padding:12px;margin-bottom:10px;background:'+(isNew?'#f0f8ff':'#fafafa')+'">'+
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
+          '<b>Заявка #'+o.id+' · '+fmtd(o.ts)+'</b>'+
+          '<span>'+(isNew?'<span style="color:#1a7fd4;font-weight:700">● НОВАЯ</span>':'<span style="color:#888">✓ обработана</span>')+'</span></div>'+
+          (o.contact?'<div style="font-size:12px;color:#666;margin-top:4px">Контакт: '+esc(o.contact)+'</div>':'')+
+          '<div style="margin-top:8px;font-size:13px">'+items+'</div>'+
+          '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'+
+          (isNew?'<button onclick="setOrder('+o.id+',\'done\')" style="background:#1a9e4b;color:#fff;padding:6px 12px;font-size:12px">Отметить обработанной</button>':'<button onclick="setOrder('+o.id+',\'new\')" style="background:#999;color:#fff;padding:6px 12px;font-size:12px">Вернуть в новые</button>')+
+          '<button onclick="delOrder('+o.id+')" style="background:#fff;border:1px solid #E02128;color:#E02128;padding:6px 12px;font-size:12px">Удалить</button></div>'+
+          '</div>';
+      }).join(''):'<p style="color:#888;padding:10px">Заявок пока нет. Они появятся, когда клиент отправит корзину с сайта.</p>');
+  }catch(e){
+    box.innerHTML='<p style="color:#E02128;padding:10px">Не удалось загрузить заявки: '+esc(e.message)+'.<br>Обновите страницу (Cmd+Shift+R) и попробуйте снова.</p>';
+  }
+}
+async function setOrder(id,status){await fetch('/api/admin/orders/'+id,{method:'PUT',headers:H(),body:JSON.stringify({status})});showOrders();loadOrdersBadge();}
+async function delOrder(id){if(!confirm('Удалить заявку?'))return;await fetch('/api/admin/orders/'+id,{method:'DELETE',headers:H()});showOrders();loadOrdersBadge();}
+
+async function showLog(){
+  const box=document.getElementById('logBox');box.classList.toggle('hide');
+  if(box.classList.contains('hide'))return;
+  const r=await fetch('/api/admin/import-log',{headers:H()});const rows=await r.json();
+  box.innerHTML='<h3>📥 Последние выгрузки из 1С (API)</h3>'+(rows.length?
+    '<table><tr><th>Дата</th><th>Источник</th><th>Получено</th><th>Создано</th><th>Обновлено</th></tr>'+
+    rows.map(l=>`<tr><td>${new Date(l.ts).toLocaleString('ru-RU')}</td><td>${l.source}</td><td>${l.received}</td><td>${l.created}</td><td>${l.updated}</td></tr>`).join('')+'</table>'
+    :'<p style="color:#888">Выгрузок ещё не было. 1С отправляет данные на POST /api/import.</p>');
+}
+</script></body></html>
