@@ -55,6 +55,7 @@ const CFG = {
   MIN_MULT: Number(process.env.MIN_MULT || 1.15),
   ROUND_TO: Number(process.env.ROUND_TO || 100),
   RESPECT_RRP: String(process.env.RESPECT_RRP || 'true') === 'true',
+  PRICE_MODE: process.env.PRICE_MODE || 'alstyle', // 'alstyle' = РРЦ из Al-Style (rrp→price2); 'markup' = наценка от закупа
   FULL_SYNC: String(process.env.FULL_SYNC || 'false') === 'true',
   PAGE: 250, BATCH: 2000, CAT_CHUNK: 80, TIMEOUT: 45000,
   ADDITIONAL: 'brand,images,description,rrp',
@@ -144,6 +145,14 @@ function retailPrice(price1, rrp) {
   if (CFG.RESPECT_RRP) { const rr = Number(rrp) || 0; if (rr > r) r = Math.ceil(rr / CFG.ROUND_TO) * CFG.ROUND_TO; }
   return r;
 }
+// Цена для каталога. По умолчанию — РРЦ из Al-Style: rrp («контроль розничной цены»),
+// иначе price2 («розничная»). Если у Al-Style нет розничной — запасной расчёт по наценке.
+function catalogPrice(el) {
+  if (CFG.PRICE_MODE === 'markup') return retailPrice(el.price1, el.rrp);
+  const rrp = Number(el.rrp) || 0, p2 = Number(el.price2) || 0;
+  const p = rrp > 0 ? rrp : p2;
+  return p > 0 ? Math.round(p) : retailPrice(el.price1, 0);
+}
 function pickImage(el) {
   let imgs = el.images; if (typeof imgs === 'string') imgs = [imgs];
   if (Array.isArray(imgs) && imgs.length) return String(imgs[0]).replace(/^http:\/\//i, 'https://');
@@ -171,7 +180,7 @@ function transform(el, leafGroup, leafName) {
     model: String(el.name || '').trim().slice(0, 200),
     group, cat: String(cat).slice(0, 100),
     desc: String(el.full_name || el.description || el.name || '').slice(0, 2000),
-    res: '', price: retailPrice(el.price1, el.rrp), stock: parseQty(el.quantity), img: pickImage(el),
+    res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: pickImage(el),
   }, enrich(group, cat));
 }
 
