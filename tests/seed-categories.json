@@ -1,0 +1,8 @@
+[
+  { "name": "Видеонаблюдение", "parent": "", "visible": 1, "sort_order": 1 },
+  { "name": "Пожарная безопасность", "parent": "", "visible": 1, "sort_order": 2 },
+  { "name": "СКУД и домофония", "parent": "", "visible": 1, "sort_order": 3 },
+  { "name": "Сетевое оборудование", "parent": "", "visible": 1, "sort_order": 4 },
+  { "name": "Источники бесперебойного питания (ИБП)", "parent": "", "visible": 1, "sort_order": 5 },
+  { "name": "Кабельные системы", "parent": "", "visible": 1, "sort_order": 6 }
+]
