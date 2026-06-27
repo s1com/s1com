@@ -240,7 +240,7 @@ app.post('/api/import', importLimiter, (req, res) => {
   const ins = db.prepare(`INSERT INTO products(sku,brand,model,grp,cat,descr,res,price,oldprice,promo,stock,img,mp,conn,type,created_at,updated_at)
     VALUES(@sku,@brand,@model,@grp,@cat,@descr,@res,@price,@oldprice,@promo,@stock,@img,@mp,@conn,@type,@now,@now)`);
   const upd = db.prepare(`UPDATE products SET brand=@brand,model=@model,grp=@grp,cat=@cat,descr=@descr,res=@res,
-    price=@price,stock=@stock,img=COALESCE(NULLIF(@img,''),img),updated_at=@now WHERE sku=@sku`);
+    price=@price,stock=@stock,img=COALESCE(NULLIF(@img,''),img),visible=1,updated_at=@now WHERE sku=@sku`);
 
   let created = 0, updated = 0, skipped = 0, deactivated = 0;
   const now = new Date().toISOString();
@@ -314,8 +314,11 @@ app.post('/api/stock', importLimiter, (req, res) => {
   res.json({ ok: true, received: items.length, updated, missing });
 });
 
-// ---------- API СИНХРОНИЗАЦИИ ДЕРЕВА КАТЕГОРИЙ (полная замена) ----------
-// Тело: { groups: [ { name, subs: [ ... ] } ] }. Заменяет таблицу categories целиком.
+// ---------- API СИНХРОНИЗАЦИИ ДЕРЕВА КАТЕГОРИЙ (бережное слияние) ----------
+// Тело: { groups: [ { name, subs: [ ... ] } ] }.
+// Новые категории добавляются (видимы), ушедшие из выгрузки — удаляются.
+// Видимость, порядок и родитель уже существующих категорий НЕ перезаписываются —
+// чтобы ручные настройки фильтров в админке не сбрасывались при каждом импорте.
 app.post('/api/categories-sync', importLimiter, (req, res) => {
   const h = req.headers.authorization || '';
   const t = h.startsWith('Bearer ') ? h.slice(7) : '';
@@ -326,24 +329,37 @@ app.post('/api/categories-sync', importLimiter, (req, res) => {
 
   const now = new Date().toISOString();
   const ins = db.prepare('INSERT OR IGNORE INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,1,?,?)');
-  let tops = 0, subs = 0;
+  const has = db.prepare('SELECT id FROM categories WHERE name=?');
+  let added = 0, kept = 0, removed = 0;
+  const incoming = new Set();
+
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM categories').run();
     let sg = 1;
     for (const g of groups) {
       const name = clamp((g || {}).name || '', 100).trim();
       if (!name) continue;
-      ins.run(name, '', sg++, now); tops++;
+      incoming.add(name);
+      if (has.get(name)) kept++; else { ins.run(name, '', sg, now); added++; }
+      sg++;
       let ss = 1;
       for (const s of (g.subs || [])) {
         const sub = clamp(s || '', 100).trim();
-        if (sub && sub !== name) { ins.run(sub, name, ss++, now); subs++; }
+        if (!sub || sub === name) continue;
+        incoming.add(sub);
+        if (has.get(sub)) kept++; else { ins.run(sub, name, ss, now); added++; }
+        ss++;
       }
+    }
+    // убираем только то, чего больше нет в выгрузке (ручные настройки оставшихся сохраняются)
+    if (incoming.size) {
+      const names = [...incoming];
+      const ph = names.map(() => '?').join(',');
+      removed = db.prepare(`DELETE FROM categories WHERE name NOT IN (${ph})`).run(...names).changes;
     }
   });
   try { tx(); }
   catch (e) { console.error('[categories-sync] ошибка:', e.message); return res.status(500).json({ error: 'Ошибка обновления категорий' }); }
-  res.json({ ok: true, tops, subs });
+  res.json({ ok: true, added, kept, removed });
 });
 
 // ---------- АДМИНКА: авторизация ----------
@@ -571,8 +587,11 @@ app.put('/api/admin/categories/:id', auth, (req, res) => {
   const sort = b.sort_order != null ? Number(b.sort_order) : cur.sort_order;
   try {
     db.prepare('UPDATE categories SET name=?, visible=?, sort_order=? WHERE id=?').run(newName, visible, sort, cur.id);
-    // если переименовали — обновим group у товаров, чтобы связь не порвалась
-    if (newName !== cur.name) db.prepare('UPDATE products SET grp=? WHERE grp=?').run(newName, cur.name);
+    // если переименовали — переносим связь у товаров: подкатегория связана через cat, раздел — через grp
+    if (newName !== cur.name) {
+      if (cur.parent) db.prepare('UPDATE products SET cat=? WHERE cat=?').run(newName, cur.name);
+      else db.prepare('UPDATE products SET grp=? WHERE grp=?').run(newName, cur.name);
+    }
     res.json({ ok: true });
   } catch (e) {
     if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'Категория с таким названием уже есть' });
@@ -580,9 +599,10 @@ app.put('/api/admin/categories/:id', auth, (req, res) => {
   }
 });
 app.delete('/api/admin/categories/:id', auth, (req, res) => {
-  const cur = db.prepare('SELECT name FROM categories WHERE id=?').get(Number(req.params.id));
+  const cur = db.prepare('SELECT name, parent FROM categories WHERE id=?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: 'Категория не найдена' });
-  const cnt = db.prepare('SELECT COUNT(*) c FROM products WHERE grp=?').get(cur.name).c;
+  const col = cur.parent ? 'cat' : 'grp';
+  const cnt = db.prepare(`SELECT COUNT(*) c FROM products WHERE ${col}=?`).get(cur.name).c;
   if (cnt > 0 && !req.query.force) return res.status(409).json({ error: `В категории ${cnt} товаров. Удаление переместит их в «без категории». Повторите с подтверждением.`, count: cnt });
   db.prepare('DELETE FROM categories WHERE id=?').run(Number(req.params.id));
   res.json({ ok: true });
@@ -691,11 +711,16 @@ app.get(/\.html$|^\/$/, (req, res, next) => {
   const fp = path.join(__dirname, 'public', file);
   fs.readFile(fp, 'utf8', (err, html) => {
     if (err) return next();
+    res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(applySeo(html));
   });
 });
 
-app.use('/', express.static(path.join(__dirname, 'public')));
+app.use('/', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, p) => {
+    if (/\.(js|css)$/.test(p)) res.set('Cache-Control', 'no-cache'); // всегда сверять свежесть JS/CSS после деплоя (нет старого кеша)
+  }
+}));
 
 // ---------- обработка ошибок ----------
 app.use((req, res) => {
