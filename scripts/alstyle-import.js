@@ -155,10 +155,16 @@ function catalogPrice(el) {
   return p > 0 ? Math.round(p) : retailPrice(el.price1, 0);
 }
 function pickImage(el) {
-  let imgs = el.images; if (typeof imgs === 'string') imgs = [imgs];
-  if (Array.isArray(imgs) && imgs.length) return String(imgs[0]).replace(/^http:\/\//i, 'https://');
+  let imgs = el.images;
+  if (typeof imgs === 'string') imgs = imgs.split(',').map(s => s.trim()).filter(Boolean);
+  if (Array.isArray(imgs)) {
+    for (const it of imgs) {
+      const u = typeof it === 'string' ? it : (it && (it.full || it.url || it.src || it.image || it.big || it.original));
+      if (u) return String(u).replace(/^http:\/\//i, 'https://');
+    }
+  }
   const code = String(el.article || '').padStart(5, '0');
-  return code ? `https://img.al-style.kz/${code}_1.jpg` : '';
+  return code ? `https://img.al-style.kz/${code}_1.jpg` : ''; // запас; битую ссылку сайт заменит плейсхолдером
 }
 function enrich(group, catName) { // лёгкое обогащение для видеонаблюдения
   const out = {};
@@ -237,6 +243,19 @@ async function pushBatch(products) {
   try { return await httpPost(url, headers, body); } catch (e) { await new Promise(r => setTimeout(r, 2000)); return httpPost(url, headers, body); }
 }
 
+// Дерево категорий (наши группы + подкатегории из товаров) → сайт (/api/categories-sync, полная замена)
+async function syncCategories(products) {
+  const order = [], byGroup = {};
+  for (const [, g] of BRANCH_MAP) if (!order.includes(g)) order.push(g);
+  for (const p of products) { if (!p.group) continue; (byGroup[p.group] = byGroup[p.group] || new Set()); if (p.cat) byGroup[p.group].add(p.cat); }
+  const groups = order.filter(g => byGroup[g]).map(g => ({ name: g, subs: [...byGroup[g]].sort((a, b) => a.localeCompare(b, 'ru')) }));
+  const body = JSON.stringify({ groups });
+  const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
+  const r = await httpPost(CFG.SITE_URL.replace(/\/$/, '') + '/api/categories-sync', headers, body);
+  console.log(`Категории обновлены: групп ${groups.length}, подкатегорий ${groups.reduce((s, g) => s + g.subs.length, 0)}.`);
+  return r;
+}
+
 // ─────────────── MAIN
 (async () => {
   const args = process.argv.slice(2);
@@ -277,5 +296,6 @@ async function pushBatch(products) {
       console.log(`  пачка ${Math.floor(i/CFG.BATCH)+1}: +${r.created||0} / ~${r.updated||0}`);
     }
     console.log(`Готово. Создано ${created}, обновлено ${updated}, снято с показа ${deactivated}, пропущено ${skipped}.`);
+    try { await syncCategories(products); } catch (e) { console.error('Категории не обновились:', e.message); }
   } catch (e) { console.error('ОШИБКА:', e.message); process.exit(1); }
 })();
