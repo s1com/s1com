@@ -107,9 +107,10 @@ function applyFilters(){
   return list;
 }
 function imgURL(s){return /^https?:\/\//i.test(s)?s:'images/'+s;}
+function imgFail(el){if(el&&el.parentNode)el.parentNode.innerHTML='<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>';}
 function cardHTML(it){
   const badge=it.promo?'<span class="fire-badge">\uD83D\uDD25 \u0410\u041A\u0426\u0418\u042F</span>':'';
-  const img=(it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
+  const img=(it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" onerror="imgFail(this)" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
   let price;
   if(it.price){
     const old=(it.promo&&it.oldprice)?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
@@ -128,7 +129,7 @@ function renderPromoStrip(){
   box.style.display='block';
   box.innerHTML='<div class="promo-head"><span class="fire">\uD83D\uDD25</span><h2>\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F</h2><span class="sub">\u0421\u043F\u0435\u0446\u0446\u0435\u043D\u044B \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E</span></div>'+
     '<div class="promo-scroll">'+promos.map(it=>{
-      const img=it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" decoding="async">':'<div class="ni">\uD83D\uDCF7</div>';
+      const img=it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" decoding="async" onerror="imgFail(this)">':'<div class="ni">\uD83D\uDCF7</div>';
       const old=it.oldprice?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
       return '<div class="promo-card"><div class="pi"><span class="fire-badge">\uD83D\uDD25</span>'+img+'</div>'+
         '<div class="pc2"><div class="pb">'+(it.brand||'')+'</div><div class="pm">'+it.model+'</div>'+
