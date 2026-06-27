@@ -148,23 +148,31 @@ function retailPrice(price1, rrp) {
 // Цена для каталога. По умолчанию — РРЦ из Al-Style: rrp («контроль розничной цены»),
 // иначе price2 («розничная»). Если у Al-Style нет розничной — запасной расчёт по наценке.
 function catalogPrice(el) {
-  if ((Number(el.price1) || 0) <= 1) return 0; // у Al-Style закуп «по запросу» → и у нас «цена по запросу»
-  if (CFG.PRICE_MODE === 'markup') return retailPrice(el.price1, el.rrp);
+  if (CFG.PRICE_MODE === 'markup') {
+    if ((Number(el.price1) || 0) <= 1) return 0;
+    return retailPrice(el.price1, el.rrp);
+  }
+  // РРЦ из Al-Style: rrp («контроль розн. цены») → price2 («розничная»).
+  // «Цена по запросу» только если у Al-Style нет розничной цены.
   const rrp = Number(el.rrp) || 0, p2 = Number(el.price2) || 0;
   const p = rrp > 0 ? rrp : p2;
-  return p > 0 ? Math.round(p) : retailPrice(el.price1, 0);
+  return p > 0 ? Math.round(p) : 0;
 }
 function pickImage(el) {
   let imgs = el.images;
   if (typeof imgs === 'string') imgs = imgs.split(',').map(s => s.trim()).filter(Boolean);
   if (Array.isArray(imgs)) {
     for (const it of imgs) {
-      const u = typeof it === 'string' ? it : (it && (it.full || it.url || it.src || it.image || it.big || it.original));
-      if (u) return String(u).replace(/^http:\/\//i, 'https://');
+      let u = typeof it === 'string' ? it : (it && (it.full || it.url || it.src || it.image || it.big || it.original));
+      if (!u) continue;
+      u = String(u).trim();
+      if (/^https?:\/\//i.test(u)) return u.replace(/^http:\/\//i, 'https://'); // полная ссылка
+      if (u.startsWith('//')) return 'https:' + u;
+      if (u.startsWith('/')) return 'https://al-style.kz' + u;                  // относительный путь Bitrix
+      return 'https://al-style.kz/' + u.replace(/^\.?\//, '');                  // имя файла
     }
   }
-  const code = String(el.article || '').padStart(5, '0');
-  return code ? `https://img.al-style.kz/${code}_1.jpg` : ''; // запас; битую ссылку сайт заменит плейсхолдером
+  return ''; // у Al-Style нет фото → на сайте «фото по запросу»
 }
 function enrich(group, catName) { // лёгкое обогащение для видеонаблюдения
   const out = {};
@@ -177,16 +185,23 @@ function enrich(group, catName) { // лёгкое обогащение для в
   }
   return out;
 }
+function stripHtml(s) {
+  return String(s || '').replace(/<br\s*\/?>/gi, ' ').replace(/<\/(p|li|div)>/gi, '. ')
+    .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, ' ')
+    .replace(/\s+/g, ' ').replace(/\s*\.\s*\./g, '.').trim();
+}
 function transform(el, leafGroup, leafName) {
   const article = el.article; if (article == null || article === '') return null;
   const group = leafGroup.get(String(el.category)) || '';
   const cat = leafName.get(String(el.category)) || String(el.category || '');
+  const model = String(el.article_pn || el.name || '').trim().slice(0, 120);
+  const desc = stripHtml(el.description || el.full_name || el.name || '').slice(0, 2000);
   return Object.assign({
     sku: String(article),
     brand: String(el.brand || '').trim(),
-    model: String(el.name || '').trim().slice(0, 200),
+    model,
     group, cat: String(cat).slice(0, 100),
-    desc: String(el.full_name || el.description || el.name || '').slice(0, 2000),
+    desc,
     res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: pickImage(el),
   }, enrich(group, cat));
 }
@@ -263,6 +278,19 @@ async function syncCategories(products) {
     if (CFG.API_KEY === 'PUT-YOUR-KEY') throw new Error('Не задан ALSTYLE_API_KEY.');
 
     if (args.includes('--stock')) { await syncStock(); return; }
+
+    if (args.includes('--imgcheck')) {
+      const { targetLeafIds } = await buildGroups();
+      const chunk = targetLeafIds.slice(0, 80).join(',');
+      const r = await apiGet('elements-pagination', { category: chunk, limit: 20, offset: 0, additional_fields: CFG.ADDITIONAL });
+      const els = r.elements || [];
+      console.log(`Проверка поля images (первые ${Math.min(els.length, 12)} товаров):\n`);
+      for (const el of els.slice(0, 12)) {
+        console.log(`код ${el.article} | ${el.article_pn || ''} | images = ${JSON.stringify(el.images)}`);
+      }
+      console.log(`\nИтог: с непустым images — ${els.filter(e => e.images && (Array.isArray(e.images) ? e.images.length : true)).length} из ${els.length}.`);
+      return;
+    }
 
     const { leafGroup, leafName, plan, targetLeafIds } = await buildGroups();
 
