@@ -73,31 +73,44 @@ function findCatPath(nodes,id,acc){
   }
   return null;
 }
-function renderTreeNodes(nodes,activeSet,depth){
-  let h='';
-  for(const n of (nodes||[])){
-    const on=n.id===curCat;
-    const open=activeSet.has(n.id);
-    const tw=n.children?'<span class="tw">'+(open?'\u25BE':'\u25B8')+'</span>':'<span class="tw"></span>';
-    h+='<a class="catnav-sub'+(on?' active':'')+'" style="padding-left:'+(10+depth*14)+'px" onclick="selectCat('+n.id+')">'+tw+esc(n.name)+'</a>';
-    if(n.children && open) h+=renderTreeNodes(n.children,activeSet,depth+1);
-  }
-  return h;
+// Путь категории именами (для крошек над товарами)
+function catPathNamed(){
+  if(!curGroup||curGroup==='\u0412\u0441\u0435'||!curCat) return [];
+  const g=CATTREE.find(t=>t.name===curGroup); if(!g) return [];
+  const ids=findCatPath(g.nodes,curCat,[]); if(!ids) return [];
+  const out=[]; let nodes=g.nodes;
+  for(const id of ids){ const n=(nodes||[]).find(x=>x.id===id); if(!n) break; out.push({id:n.id,name:n.name}); nodes=n.children; }
+  return out;
 }
+// Сайдбар: кнопка «Все категории» + быстрые ссылки верхнего уровня раздела (без многоуровневого раскрытия)
 function renderCategoryNav(){
-  if(!CATTREE||!CATTREE.length) return '';
-  let items='<a class="catnav-item'+(curGroup==='\u0412\u0441\u0435'?' active':'')+'" onclick="selectGroup(\'\u0412\u0441\u0435\')">\u0412\u0441\u0435 \u0442\u043E\u0432\u0430\u0440\u044B</a>';
-  CATTREE.forEach(t=>{
-    const nm=t.name.replace(/'/g,"\\'");
-    const on=curGroup===t.name;
-    items+='<a class="catnav-item'+(on?' active':'')+'" onclick="selectGroup(\''+nm+'\')">'+esc(t.name)+'</a>';
-    if(on && (t.nodes||[]).length){
-      const path=curCat?findCatPath(t.nodes,curCat,[]):null;
-      const activeSet=new Set(path||[]);
-      items+='<div class="catnav-subs"><a class="catnav-sub'+(curCat===0?' active':'')+'" style="padding-left:10px" onclick="selectCat(0)">\u0412\u0441\u0435 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>'+renderTreeNodes(t.nodes,activeSet,0)+'</div>';
+  let html='<div class="facet catnav-box"><button class="allcat-btn" onclick="openCatalog()">\uD83D\uDCC2 \u0412\u0441\u0435 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438</button>';
+  if(CATTREE&&CATTREE.length){
+    if(curGroup==='\u0412\u0441\u0435'){
+      html+='<div class="catnav-quick">';
+      CATTREE.forEach(t=>{ html+='<a onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
+      html+='</div>';
+    } else {
+      const g=CATTREE.find(t=>t.name===curGroup);
+      const kids=(g&&g.nodes)?g.nodes:[];
+      html+='<div class="catnav-quick"><a class="'+(curCat===0?'active':'')+'" onclick="selectCat(0)">\u0412\u0441\u0451 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>';
+      kids.forEach(n=>{ html+='<a class="'+(curCat===n.id?'active':'')+'" onclick="selectCat('+n.id+')">'+esc(n.name)+(n.children?' \u203A':'')+'</a>'; });
+      html+='</div>';
     }
-  });
-  return '<div class="facet catnav"><h3>\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438</h3><div class="opts">'+items+'</div></div>';
+  }
+  html+='</div>';
+  return html;
+}
+// Крошки пути категории над товарами (как у Al-Style)
+function renderCatCrumb(){
+  let bar=document.getElementById('catCrumb');
+  if(!bar){ const grid=document.getElementById('grid'); if(!grid) return; bar=document.createElement('div'); bar.id='catCrumb'; bar.className='catcrumb'; grid.parentNode.insertBefore(bar,grid); }
+  if(!curGroup||curGroup==='\u0412\u0441\u0435'){ bar.style.display='none'; bar.innerHTML=''; return; }
+  const path=catPathNamed();
+  let html='<a onclick="selectGroup(\''+curGroup.replace(/'/g,"\\'")+'\')">'+esc(curGroup)+'</a>';
+  path.forEach(p=>{ html+='<span class="sep">\u203A</span><a onclick="selectCat('+p.id+')">'+esc(p.name)+'</a>'; });
+  if(curCat) html+='<button class="crumb-clear" onclick="selectCat(0)">\u00D7 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C</button>';
+  bar.style.display='flex'; bar.innerHTML=html;
 }
 function renderSidebar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
@@ -196,6 +209,7 @@ function renderPromoStrip(){
 
 const BATCH=48; let _list=[], _shown=0;
 function render(){
+  renderCatCrumb();
   _list=applyFilters();
   document.getElementById('count').textContent=_list.length+' '+plural(_list.length,'\u043F\u043E\u0437\u0438\u0446\u0438\u044F','\u043F\u043E\u0437\u0438\u0446\u0438\u0438','\u043F\u043E\u0437\u0438\u0446\u0438\u0439');
   const grid=document.getElementById('grid');
@@ -290,15 +304,31 @@ function catalogNodeHTML(group,nodes,depth){
 function openCatalog(){
   buildCatalogOverlay();
   const ov=document.getElementById('catalogOverlay');
-  let html='<div class="catalog-panel"><div class="catalog-head"><h2>Все категории</h2><button onclick="closeCatalog()" class="catalog-x">×</button></div><div class="catalog-grid">';
-  if(!CATTREE.length){ html+='<p style="color:#888">Категории загружаются…</p>'; }
-  CATTREE.forEach(t=>{
-    const nm=t.name.replace(/'/g,"\\'");
-    html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',0)">'+esc(t.name)+'</a>'+catalogNodeHTML(t.name,t.nodes,0)+'</div>';
-  });
-  html+='</div></div>';
-  ov.innerHTML=html; ov.classList.add('open');
+  ov.innerHTML='<div class="catalog-panel"><div class="catalog-head"><h2>Все категории</h2>'
+    +'<input id="catSearch" class="catalog-search" placeholder="Быстрый поиск по категории…" oninput="filterCatalogMenu(this.value)">'
+    +'<button onclick="closeCatalog()" class="catalog-x" title="Закрыть">×</button></div>'
+    +'<div class="catalog-grid" id="catalogGrid"></div></div>';
+  renderCatalogGrid('');
+  ov.classList.add('open');
+  setTimeout(()=>{const s=document.getElementById('catSearch');if(s)s.focus();},60);
 }
+function renderCatalogGrid(q){
+  const box=document.getElementById('catalogGrid'); if(!box) return;
+  q=(q||'').trim().toLowerCase();
+  if(!CATTREE.length){ box.innerHTML='<p style="opacity:.6">Категории загружаются…</p>'; return; }
+  if(q){
+    const hits=[];
+    CATTREE.forEach(t=>{ (function walk(nodes){ (nodes||[]).forEach(n=>{ if(n.name.toLowerCase().includes(q)) hits.push({g:t.name,id:n.id,name:n.name}); walk(n.children); }); })(t.nodes); });
+    box.innerHTML = hits.length
+      ? '<div class="catalog-hits">'+hits.slice(0,80).map(h=>'<a onclick="pickCat(\''+h.g.replace(/'/g,"\\'")+'\','+h.id+')">'+esc(h.name)+' <span class="cg">'+esc(h.g)+'</span></a>').join('')+'</div>'
+      : '<p style="opacity:.6">Ничего не найдено</p>';
+    return;
+  }
+  let html='';
+  CATTREE.forEach(t=>{ const nm=t.name.replace(/'/g,"\\'"); html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',0)">'+esc(t.name)+'</a>'+catalogNodeHTML(t.name,t.nodes,0)+'</div>'; });
+  box.innerHTML=html;
+}
+function filterCatalogMenu(q){ renderCatalogGrid(q); }
 function closeCatalog(){ const ov=document.getElementById('catalogOverlay'); if(ov)ov.classList.remove('open'); }
 function pickCat(group,catId){ closeCatalog(); selectGroup(group); if(catId) setTimeout(()=>selectCat(catId),60); }
 

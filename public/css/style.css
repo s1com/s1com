@@ -277,3 +277,29 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 /* Дерево категорий в сайдбаре (раскрытие по уровням) */
 .catnav-sub .tw{display:inline-block;width:14px;color:#3b82f6;font-size:11px;text-align:center}
 .catalog-sub0{font-weight:600;color:#334155}
+
+/* Кнопка «Каталог» в шапке */
+.nav-catalog{background:var(--red);color:#fff!important;border-radius:8px;padding:7px 14px!important;font-weight:700;cursor:pointer}
+.nav-catalog:hover{filter:brightness(1.08)}
+/* Меню каталога: поиск + плоские результаты */
+.catalog-search{flex:1;margin:0 16px;padding:10px 14px;border:1.5px solid var(--line);border-radius:10px;font-size:14px;min-width:120px}
+.catalog-search:focus{outline:none;border-color:var(--red)}
+.catalog-hits{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px}
+.catalog-hits a{display:flex;justify-content:space-between;align-items:center;gap:8px;text-decoration:none;color:#222;padding:9px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;font-size:14px}
+.catalog-hits a:hover{border-color:var(--red);color:var(--red)}
+.catalog-hits .cg{font-size:11px;color:#999;white-space:nowrap}
+/* Сайдбар: кнопка все категории + быстрые ссылки */
+.catnav-box{padding-bottom:4px}
+.allcat-btn{width:100%;background:#f4f5f7;border:1.5px solid var(--line);border-radius:10px;padding:11px;font-weight:700;cursor:pointer;color:#222;margin-bottom:8px}
+.allcat-btn:hover{border-color:var(--red);color:var(--red)}
+.catnav-quick{display:flex;flex-direction:column;gap:1px}
+.catnav-quick a{text-decoration:none;color:#444;padding:7px 10px;border-radius:8px;cursor:pointer;font-size:13.5px}
+.catnav-quick a:hover{background:#f4f5f7;color:var(--red)}
+.catnav-quick a.active{background:var(--red);color:#fff;font-weight:600}
+/* Крошки пути категории над товарами */
+.catcrumb{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0 0 14px;padding:10px 14px;background:#f7f8fa;border-radius:10px;font-size:14px}
+.catcrumb a{color:var(--red);text-decoration:none;cursor:pointer;font-weight:600}
+.catcrumb a:hover{text-decoration:underline}
+.catcrumb .sep{color:#bbb}
+.crumb-clear{margin-left:auto;background:none;border:1px solid var(--line);border-radius:7px;color:#888;cursor:pointer;padding:4px 10px;font-size:12.5px}
+.crumb-clear:hover{border-color:var(--red);color:var(--red)}
