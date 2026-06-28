@@ -4,7 +4,7 @@ function ymGoal(name){try{if(window.ym&&window.__YM_ID__&&window.__YM_ID__!=='__
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let PRODUCTS=[], POOL=[];
 let curGroup=window.PAGE_GROUP||'Все';
-let F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:'default',promoOnly:false};
+let F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:'default',promoOnly:false,inStock:false};
 let CART={};
 
 function fmt(n){return n? n.toLocaleString('ru-RU')+' \u20B8':'';}
@@ -113,40 +113,44 @@ function renderCatCrumb(){
   bar.style.display='flex'; bar.innerHTML=html;
 }
 function renderSidebar(){
+  // каталог категорий — в левый сайдбар
+  document.getElementById('facets').innerHTML=renderCategoryNav();
+  // видимая строка фильтров над списком товаров
+  renderFilterBar();
+}
+function activeFilterCount(){let n=F.brand.size+F.type.size+F.mp.size;if(F.inStock)n++;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
+function updateFilterBadge(){} // совместимость со старым вызовом
+// Видимая строка фильтров: тумблер «В наличии» + дропдауны Бренд/Тип/Разрешение/Цена (как в макете)
+function facetDropdown(title,field,values){
+  const counts=facetCounts(field);
+  const opts=values.filter(v=>counts[v]).map(v=>'<label class="opt"><input type="checkbox" '+(F[field].has(v)?'checked':'')+' onchange="toggleF(\''+field+'\',\''+v+'\')"> '+v+'<span class="n">'+counts[v]+'</span></label>').join('');
+  if(!opts) return '';
+  const sel=F[field].size;
+  return '<div class="filterwrap"><button class="filterbtn'+(sel?' on':'')+'" onclick="fbToggle(this,event)">'+title+(sel?' <span class="fbadge">'+sel+'</span>':'')+'<span class="ar">▾</span></button><div class="filterdrop" onclick="event.stopPropagation()">'+opts+'</div></div>';
+}
+function renderFilterBar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
   const types=[...new Set(POOL.map(p=>p.type).filter(t=>t&&t!=='\u041F\u0440\u043E\u0447\u0435\u0435'))].sort();
   const mps=['2 \u041C\u041F','3 \u041C\u041F','4 \u041C\u041F','5 \u041C\u041F','6 \u041C\u041F','8 \u041C\u041F'];
-  // каталог категорий — в левый сайдбар
-  document.getElementById('facets').innerHTML=renderCategoryNav();
-  // фильтры рядом с сортировкой; Тип/Разрешение появляются только если в текущей категории есть такие товары
-  const facets=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands,false)
-    +buildFacet('\u0422\u0438\u043F','type',types,false)
-    +buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps,false)
-    +'<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'
-    +'<input type="number" id="pmin" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render();updateFilterBadge()">'
-    +'<input type="number" id="pmax" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render();updateFilterBadge()"></div></div></div>'
-    +'<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
-  mountFilterDropdown(facets);
+  let h='<button class="stockpill'+(F.inStock?' on':'')+'" onclick="F.inStock=!F.inStock;render();renderActiveTags();renderFilterBar()"><span class="psw'+(F.inStock?' on':'')+'"></span>\u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438</button>';
+  h+=facetDropdown('\u0411\u0440\u0435\u043D\u0434','brand',brands);
+  h+=facetDropdown('\u0422\u0438\u043F','type',types);
+  h+=facetDropdown('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps);
+  const pa=(F.pmin!=null||F.pmax!=null);
+  h+='<div class="filterwrap"><button class="filterbtn'+(pa?' on':'')+'" onclick="fbToggle(this,event)">\u0426\u0435\u043D\u0430'+(pa?' <span class="fbadge">\u20B8</span>':'')+'<span class="ar">\u25BE</span></button><div class="filterdrop" onclick="event.stopPropagation()"><div class="price-row"><input type="number" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render();renderActiveTags()"><input type="number" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render();renderActiveTags()"></div></div></div>';
+  if(activeFilterCount()) h+='<span class="fb-reset" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C</span>';
+  mountFilterBar(h);
 }
-function activeFilterCount(){let n=F.brand.size+F.type.size+F.mp.size;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
-function updateFilterBadge(){const b=document.getElementById('filterBtn');if(b){const n=activeFilterCount();b.innerHTML='\u2699 \u0424\u0438\u043B\u044C\u0442\u0440\u044B'+(n?' <span class="fbadge">'+n+'</span>':'');}}
-function mountFilterDropdown(html){
-  const sort=document.getElementById('sortsel');
-  let wrap=document.getElementById('filterWrap');
-  if(!wrap && sort && sort.parentNode){
-    wrap=document.createElement('span');wrap.id='filterWrap';wrap.className='filterwrap';
-    const btn=document.createElement('button');btn.id='filterBtn';btn.type='button';btn.className='filterbtn';
-    btn.onclick=function(e){e.stopPropagation();wrap.classList.toggle('open');};
-    const drop=document.createElement('div');drop.id='filterDrop';drop.className='filterdrop';
-    drop.onclick=function(e){e.stopPropagation();};
-    wrap.appendChild(btn);wrap.appendChild(drop);
-    sort.parentNode.insertBefore(wrap,sort);
-    document.addEventListener('click',function(){wrap.classList.remove('open');});
-    const old=document.querySelector('.filter-toggle');if(old)old.style.display='none'; // старую кнопку прячем
-  }
-  if(wrap){document.getElementById('filterDrop').innerHTML=html;updateFilterBadge();}
+function fbToggle(btn,e){e.stopPropagation();const w=btn.parentNode,o=w.classList.contains('open');document.querySelectorAll('.filterwrap.open').forEach(x=>x.classList.remove('open'));if(!o)w.classList.add('open');}
+function mountFilterBar(html){
+  const tb=document.querySelector('.topbar'); if(!tb) return;
+  let bar=document.getElementById('filterBar');
+  if(!bar){ bar=document.createElement('div'); bar.id='filterBar'; bar.className='filterbar'; tb.parentNode.insertBefore(bar,tb);
+    document.addEventListener('click',()=>document.querySelectorAll('.filterwrap.open').forEach(x=>x.classList.remove('open'))); }
+  bar.innerHTML=html;
+  const old=document.querySelector('.filter-toggle'); if(old) old.style.display='none';
 }
-function clearFilters(){F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:F.sort};
+function clearFilters(){F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:F.sort,inStock:false};
   document.getElementById('search').value='';renderSidebar();render();renderActiveTags();}
 function renderActiveTags(){
   const box=document.getElementById('activeTags');if(!box)return;
@@ -157,6 +161,7 @@ function applyFilters(){
   const q=(document.getElementById('search').value||'').trim().toLowerCase();
   let list=POOL.filter(p=>{
     if(F.promoOnly&&!p.promo)return false;
+    if(F.inStock&&!p.inStock)return false;
     if(F.brand.size&&!F.brand.has(p.brand))return false;
     if(F.type.size&&!F.type.has(p.type))return false;
     if(F.mp.size&&!F.mp.has(p.mp))return false;
