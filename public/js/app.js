@@ -292,43 +292,70 @@ function buildCatalogOverlay(){
   ov.onclick=e=>{ if(e.target===ov) closeCatalog(); };
   document.body.appendChild(ov);
 }
-function catalogNodeHTML(group,nodes,depth){
+const isMP=n=>/\u043C\u0435\u0433\u0430\u043F\u0438\u043A\u0441\u0435\u043B\u044C\u043D/i.test(n||''); // «мегапиксельн…»
+let menuG=0;
+// дерево раздела для правой панели (мегапиксели в меню НЕ показываем — они фильтром)
+function menuTreeHTML(group,nodes,depth){
   let h='';
   for(const n of (nodes||[])){
+    if(isMP(n.name)) continue;
     const cls=depth===0?'catalog-sub catalog-sub0':'catalog-sub';
     h+='<a class="'+cls+'" style="padding-left:'+(depth*12)+'px" onclick="pickCat(\''+group.replace(/'/g,"\\'")+'\','+n.id+')">'+esc(n.name)+'</a>';
-    if(n.children) h+=catalogNodeHTML(group,n.children,depth+1);
+    if(n.children) h+=menuTreeHTML(group,n.children,depth+1);
   }
   return h;
 }
 function openCatalog(){
   buildCatalogOverlay();
+  const gi=CATTREE.findIndex(t=>t.name===curGroup); menuG = gi>=0 ? gi : 0;
   const ov=document.getElementById('catalogOverlay');
-  ov.innerHTML='<div class="catalog-panel"><div class="catalog-head"><h2>Все категории</h2>'
+  ov.innerHTML='<div class="catalog-panel"><div class="catalog-head"><h2>Каталог</h2>'
     +'<input id="catSearch" class="catalog-search" placeholder="Быстрый поиск по категории…" oninput="filterCatalogMenu(this.value)">'
     +'<button onclick="closeCatalog()" class="catalog-x" title="Закрыть">×</button></div>'
-    +'<div class="catalog-grid" id="catalogGrid"></div></div>';
-  renderCatalogGrid('');
+    +'<div id="catalogBody"></div></div>';
+  renderAspro();
   ov.classList.add('open');
   setTimeout(()=>{const s=document.getElementById('catSearch');if(s)s.focus();},60);
 }
-function renderCatalogGrid(q){
-  const box=document.getElementById('catalogGrid'); if(!box) return;
-  q=(q||'').trim().toLowerCase();
-  if(!CATTREE.length){ box.innerHTML='<p style="opacity:.6">Категории загружаются…</p>'; return; }
-  if(q){
-    const hits=[];
-    CATTREE.forEach(t=>{ (function walk(nodes){ (nodes||[]).forEach(n=>{ if(n.name.toLowerCase().includes(q)) hits.push({g:t.name,id:n.id,name:n.name}); walk(n.children); }); })(t.nodes); });
-    box.innerHTML = hits.length
-      ? '<div class="catalog-hits">'+hits.slice(0,80).map(h=>'<a onclick="pickCat(\''+h.g.replace(/'/g,"\\'")+'\','+h.id+')">'+esc(h.name)+' <span class="cg">'+esc(h.g)+'</span></a>').join('')+'</div>'
-      : '<p style="opacity:.6">Ничего не найдено</p>';
-    return;
-  }
-  let html='';
-  CATTREE.forEach(t=>{ const nm=t.name.replace(/'/g,"\\'"); html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',0)">'+esc(t.name)+'</a>'+catalogNodeHTML(t.name,t.nodes,0)+'</div>'; });
-  box.innerHTML=html;
+// ── Мегаменю в стиле Аспро: Максимум ──
+const GROUP_ICONS={"Видеонаблюдение":"📹","Сетевое оборудование":"🌐","Источники бесперебойного питания (ИБП)":"🔋","Пожарная безопасность":"🔥","СКУД и домофония":"🚪","Кабельные системы":"🧵"};
+const MENU_BRANDS=["Dahua","Hikvision","HiLook","Imou","EZVIZ","Wi-Tek","Болид","APC"];
+const MENU_MAXVIS=6, WA_PRICE="77053541999";
+// подразделы (1-й уровень) → блоки; их дети (2-й уровень) → пункты; мегапиксели убираем
+function asproBlocks(g){
+  const L1=g.nodes||[];
+  const anyKids=L1.some(n=>n.children&&n.children.length);
+  if(anyKids) return L1.map(n=>({header:n.name,hid:n.id,items:(n.children||[]).filter(c=>!isMP(c.name)).map(c=>({name:c.name,id:c.id}))}));
+  return [{header:g.name,hid:0,items:L1.filter(n=>!isMP(n.name)).map(n=>({name:n.name,id:n.id}))}];
 }
-function filterCatalogMenu(q){ renderCatalogGrid(q); }
+function renderAspro(){
+  const box=document.getElementById('catalogBody'); if(!box) return;
+  if(!CATTREE.length){ box.innerHTML='<p style="opacity:.6">Категории загружаются…</p>'; return; }
+  const g=CATTREE[menuG]||CATTREE[0];
+  const left=CATTREE.map((t,i)=>'<a class="'+(i===menuG?'on':'')+'" onmouseenter="selectMenuGroup('+i+')" onclick="selectMenuGroup('+i+')"><span class="am-ic">'+(GROUP_ICONS[t.name]||'📦')+'</span>'+esc(t.name)+'<span class="am-arr">›</span></a>').join('');
+  const gn=g.name.replace(/'/g,"\\'");
+  const cols=asproBlocks(g).map(b=>{
+    const head='<div class="am-bt" onclick="pickCat(\''+gn+'\','+b.hid+')">'+esc(b.header)+'</div>';
+    const vis=b.items.slice(0,MENU_MAXVIS).map(it=>'<a onclick="pickCat(\''+gn+'\','+it.id+')">'+esc(it.name)+'</a>').join('');
+    const more=b.items.length>MENU_MAXVIS?'<span class="am-more" onclick="pickCat(\''+gn+'\','+b.hid+')">Ещё '+(b.items.length-MENU_MAXVIS)+' →</span>':'';
+    return '<div class="am-block">'+head+vis+more+'</div>';
+  }).join('');
+  const promo='<div class="am-promo"><div class="am-banner"><div class="am-bnt">Оптовые цены</div><div class="am-bns">Прайс для монтажников и оптовиков. Спеццена от 50 шт.</div>'
+    +'<a class="am-bnb" href="https://wa.me/'+WA_PRICE+'?text='+encodeURIComponent('Здравствуйте, пришлите прайс')+'" target="_blank" rel="noopener">Запросить прайс</a></div>'
+    +'<div class="am-brh">Бренды</div><div class="am-brands">'+MENU_BRANDS.map(b=>'<span class="am-brand" onclick="menuPickBrand(\''+b.replace(/'/g,"\\'")+'\')">'+esc(b)+'</span>').join('')+'</div></div>';
+  box.innerHTML='<div class="am"><div class="am-left">'+left+'</div><div class="am-right"><div class="am-cols">'+cols+'</div>'+promo+'</div></div>';
+}
+function menuPickBrand(b){ closeCatalog(); const s=document.getElementById('search'); if(s){ s.value=b; s.dispatchEvent(new Event('input')); window.scrollTo({top:0,behavior:'smooth'}); } }
+function renderCatalogSearch(q){
+  const box=document.getElementById('catalogBody'); if(!box) return;
+  const hits=[];
+  CATTREE.forEach(t=>{ (function walk(nodes){ (nodes||[]).forEach(n=>{ if(!isMP(n.name) && n.name.toLowerCase().includes(q)) hits.push({g:t.name,id:n.id,name:n.name}); walk(n.children); }); })(t.nodes); });
+  box.innerHTML = hits.length
+    ? '<div class="catalog-hits">'+hits.slice(0,80).map(h=>'<a onclick="pickCat(\''+h.g.replace(/'/g,"\\'")+'\','+h.id+')">'+esc(h.name)+' <span class="cg">'+esc(h.g)+'</span></a>').join('')+'</div>'
+    : '<p style="opacity:.6">Ничего не найдено</p>';
+}
+function filterCatalogMenu(q){ q=(q||'').trim().toLowerCase(); if(q) renderCatalogSearch(q); else renderAspro(); }
+function selectMenuGroup(i){ if(i===menuG && document.querySelector('.am-cols')) return; menuG=i; renderAspro(); }
 function closeCatalog(){ const ov=document.getElementById('catalogOverlay'); if(ov)ov.classList.remove('open'); }
 function pickCat(group,catId){ closeCatalog(); selectGroup(group); if(catId) setTimeout(()=>selectCat(catId),60); }
 
