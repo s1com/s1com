@@ -60,8 +60,6 @@ CREATE TABLE IF NOT EXISTS categories(
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cat_visible ON categories(visible);
-CREATE INDEX IF NOT EXISTS idx_cat_parentid ON categories(parent_id);
-CREATE INDEX IF NOT EXISTS idx_cat_grp ON categories(grp);
 
 CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
@@ -101,6 +99,10 @@ try {
     console.log('[db] categories мигрирована на дерево по ID Al-Style (перезаполнится при импорте)');
   }
 } catch (e) { console.error('[db] миграция categories:', e.message); }
-ensureColumn('categories','parent',"parent TEXT DEFAULT ''");
+// Индексы дерева создаём ПОСЛЕ миграции — здесь таблица уже гарантированно нового вида.
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cat_parentid ON categories(parent_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cat_grp ON categories(grp)');
+} catch (e) { console.error('[db] индексы categories:', e.message); }
 
 module.exports=db;
