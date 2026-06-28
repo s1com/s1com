@@ -27,7 +27,7 @@ header{background:#fff;border-bottom:3px solid var(--red);position:sticky;top:0;
 .chip{padding:8px 15px;border:1.5px solid var(--line);background:#fff;border-radius:30px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;color:var(--grey);text-decoration:none;display:inline-block}
 .chip:hover{border-color:var(--red);color:var(--red)}
 .chip.active{background:var(--red);border-color:var(--red);color:#fff}
-.count{color:var(--grey);font-size:13px;margin-top:9px}
+.count{color:var(--grey);font-size:13px;margin-top:9px;margin-right:auto}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:15px;padding:8px 0 20px}
 .card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;transition:.15s}
 .card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.09)}
@@ -42,6 +42,7 @@ header{background:#fff;border-bottom:3px solid var(--red);position:sticky;top:0;
 .price{font-size:20px;font-weight:800}.price small{font-size:11px;color:var(--grey);font-weight:600}
 .ondemand{font-size:13px;color:var(--grey);font-style:italic}
 .stock{font-size:11.5px;color:#1a9e4b;font-weight:600;margin-top:3px}
+.stock.under{color:var(--grey);font-weight:500}
 .btns{display:flex;gap:7px;margin-top:10px}
 .wa{flex:1;text-align:center;background:var(--green);color:#fff;font-weight:700;padding:10px;border-radius:9px;text-decoration:none;font-size:13px}
 .wa:hover{background:#1da851}
@@ -233,3 +234,46 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{ou
 .to-top:hover{background:#000}
 .to-top:active{transform:scale(.92)}
 @media (prefers-reduced-motion: reduce){.loading::after{animation:none}}
+
+/* ---- Каталог категорий в сайдбаре (общие стили для всех страниц) ---- */
+.catnav .opts{display:flex;flex-direction:column;gap:2px}
+.catnav-item{display:block;padding:7px 10px;border-radius:8px;color:#222;text-decoration:none;cursor:pointer;font-size:14px;line-height:1.25}
+.catnav-item:hover{background:#f3f3f5}
+.catnav-item.active{background:#e8101b;color:#fff;font-weight:600}
+.catnav-subs{display:flex;flex-direction:column;gap:1px;margin:2px 0 6px 8px;border-left:2px solid #eee;padding-left:6px}
+.catnav-sub{display:block;padding:5px 9px;border-radius:7px;color:#555;text-decoration:none;cursor:pointer;font-size:13px;line-height:1.25}
+.catnav-sub:hover{background:#f3f3f5;color:#222}
+.catnav-sub.active{background:#fde8e9;color:#e8101b;font-weight:600}
+.filters-head{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#8a8a90;padding:14px 16px 6px;border-top:1px solid #eee;margin-top:4px}
+
+/* ---- Выпадающий фильтр у сортировки ---- */
+.filterwrap{position:relative;display:inline-block}
+.filterbtn{padding:9px 13px;border:1.5px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;background:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.filterbtn:hover{border-color:#bbb}
+.fbadge{background:#e8101b;color:#fff;border-radius:10px;font-size:11px;padding:1px 7px;font-weight:700}
+.filterdrop{position:absolute;top:calc(100% + 6px);right:0;z-index:60;width:300px;max-width:88vw;max-height:72vh;overflow:auto;background:#fff;border:1px solid #e3e3e3;border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.14);display:none}
+.filterwrap.open .filterdrop{display:block}
+.filterdrop .facet:first-child h3{padding-top:14px}
+
+/* ---- SEO-текст под каталогом ---- */
+.seo-text{max-width:1180px;margin:8px auto 34px;padding:0 18px;color:#4a4a4a;font-size:14.5px;line-height:1.75}
+.seo-text h2{font-size:20px;color:#1a1a1a;margin:20px 0 10px}
+.seo-text h3{font-size:16px;color:#1a1a1a;margin:16px 0 8px}
+.seo-text p{margin:0 0 10px}
+
+/* ---- FAQ (аккордеон без JS) + перелинковка ---- */
+.faq{max-width:1180px;margin:0 auto 24px;padding:0 18px}
+.faq h2{font-size:20px;color:#1a1a1a;margin:18px 0 12px}
+.faq details{border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:#fff}
+.faq summary{cursor:pointer;padding:13px 16px;font-weight:600;font-size:15px;list-style:none;position:relative}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";position:absolute;right:16px;color:var(--grey);font-weight:700}
+.faq details[open] summary::after{content:"\2013"}
+.faq .ans{padding:0 16px 14px;color:#4a4a4a;font-size:14.5px;line-height:1.7}
+.seealso{max-width:1180px;margin:0 auto 34px;padding:0 18px;font-size:14px;color:#555}
+.seealso a{color:#1a7fd4;text-decoration:none;margin:0 6px}
+.seealso a:hover{text-decoration:underline}
+
+/* Дерево категорий в сайдбаре (раскрытие по уровням) */
+.catnav-sub .tw{display:inline-block;width:14px;color:#3b82f6;font-size:11px;text-align:center}
+.catalog-sub0{font-weight:600;color:#334155}

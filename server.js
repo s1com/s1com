@@ -129,12 +129,13 @@ function rowToAdmin(r) {
     stock: r.stock || 0, visible: r.visible !== 0, img: r.img || '', mp: r.mp || '',
     conn: (r.conn || '').split(',').filter(Boolean), type: r.type || '' };
 }
-// Публичное представление — БЕЗ точного остатка (только факт наличия), чтобы не светить склад конкурентам
+// Публичное представление: показываем остаток и факт наличия
 function rowToPublic(r) {
   const a = rowToAdmin(r);
-  const inStock = (r.stock || 0) > 0;
-  delete a.stock; delete a.visible;
-  a.inStock = inStock;
+  delete a.visible;
+  a.inStock = (a.stock || 0) > 0;
+  a.catId = r.cat_id || 0;
+  try { a.catPath = JSON.parse(r.cat_path || '[]'); } catch (e) { a.catPath = []; }
   return a;
 }
 function auth(req, res, next) {
@@ -156,7 +157,7 @@ function sanitizeProduct(p) {
     model: clamp(p.model || p.name, 200),
     grp: clamp(p.group || p.grp, 100),
     cat: clamp(p.cat || p.category, 100),
-    descr: clamp(p.desc || p.descr || p.description, 2000),
+    descr: clamp(p.desc || p.descr || p.description, 6000),
     res: clamp(p.res, 100),
     price: Math.max(0, toInt(p.price)),
     oldprice: Math.max(0, toInt(p.oldprice)),
@@ -166,8 +167,18 @@ function sanitizeProduct(p) {
     images: cleanImages(p.images),
     mp: clamp(p.mp, 30),
     conn: Array.isArray(p.conn) ? clamp(p.conn.join(','), 100) : clamp(p.conn, 100),
-    type: clamp(p.type, 100)
+    type: clamp(p.type, 100),
+    cat_id: Math.max(0, toInt(p.cat_id || p.catId)),
+    cat_path: normPath(p.cat_path || p.catPath)
   };
+}
+// Путь категорий → JSON-массив положительных ID (до 12 уровней). Принимаем массив или JSON-строку.
+function normPath(v) {
+  let arr = [];
+  if (Array.isArray(v)) arr = v;
+  else if (typeof v === 'string') { try { const j = JSON.parse(v); if (Array.isArray(j)) arr = j; } catch (e) {} }
+  arr = arr.map(x => parseInt(x, 10)).filter(n => Number.isFinite(n) && n > 0).slice(0, 12);
+  return JSON.stringify(arr);
 }
 // Нормализуем список фото в JSON-массив ссылок (до 12 шт). Принимаем массив или JSON-строку.
 function cleanImages(v) {
@@ -204,10 +215,33 @@ app.get('/api/products', (req, res) => {
 // ---------- КАТЕГОРИИ (публично: только видимые) ----------
 app.get('/api/categories', (req, res) => {
   res.set('Cache-Control', 'public, max-age=120');
-  const all = db.prepare('SELECT name, parent FROM categories WHERE visible=1 ORDER BY sort_order, name').all();
-  const tops = all.filter(c => !c.parent);
-  // дерево: верхние категории + их видимые подкатегории
-  const tree = tops.map(t => ({ name: t.name, subcategories: all.filter(c => c.parent === t.name).map(c => c.name) }));
+  const all = db.prepare('SELECT cat_id, parent_id, grp, name, depth FROM categories WHERE visible=1 ORDER BY sort_order, name').all();
+  // строим вложенное дерево внутри каждой группы (произвольная глубина)
+  const byParent = new Map(); // parent_id → [узлы]
+  for (const c of all) {
+    const k = c.parent_id || 0;
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k).push(c);
+  }
+  const build = (parentId) => (byParent.get(parentId) || []).map(c => {
+    const node = { id: c.cat_id, name: c.name };
+    const kids = build(c.cat_id);
+    if (kids.length) node.children = kids;
+    return node;
+  });
+  // группы в фиксированном порядке; верхний уровень группы — узлы с parent_id=0 и этой группой
+  const order = ['Видеонаблюдение', 'Сетевое оборудование', 'Источники бесперебойного питания (ИБП)', 'Пожарная безопасность', 'СКУД и домофония', 'Кабельные системы'];
+  const groupsPresent = [...new Set(all.map(c => c.grp).filter(Boolean))];
+  const ordered = [...order.filter(g => groupsPresent.includes(g)), ...groupsPresent.filter(g => !order.includes(g))];
+  const tree = ordered.map(g => {
+    const tops = (byParent.get(0) || []).filter(c => c.grp === g).map(c => {
+      const node = { id: c.cat_id, name: c.name };
+      const kids = build(c.cat_id);
+      if (kids.length) node.children = kids;
+      return node;
+    });
+    return { name: g, nodes: tops };
+  });
   res.json(tree);
 });
 
@@ -252,9 +286,11 @@ app.post('/api/import', importLimiter, (req, res) => {
   if (products.length > MAX_IMPORT) return res.status(413).json({ error: `Слишком много товаров за раз (макс ${MAX_IMPORT})` });
 
   const findBySku = db.prepare('SELECT id FROM products WHERE sku=?');
-  const ins = db.prepare(`INSERT INTO products(sku,brand,model,grp,cat,descr,res,price,oldprice,promo,stock,img,images,mp,conn,type,created_at,updated_at)
-    VALUES(@sku,@brand,@model,@grp,@cat,@descr,@res,@price,@oldprice,@promo,@stock,@img,@images,@mp,@conn,@type,@now,@now)`);
-  const upd = db.prepare(`UPDATE products SET brand=@brand,model=@model,grp=@grp,cat=@cat,descr=@descr,res=@res,
+  const ins = db.prepare(`INSERT INTO products(sku,brand,model,grp,cat,cat_id,cat_path,descr,res,price,oldprice,promo,stock,img,images,mp,conn,type,created_at,updated_at)
+    VALUES(@sku,@brand,@model,@grp,@cat,@cat_id,@cat_path,@descr,@res,@price,@oldprice,@promo,@stock,@img,@images,@mp,@conn,@type,@now,@now)`);
+  const upd = db.prepare(`UPDATE products SET brand=@brand,model=@model,grp=@grp,cat=@cat,cat_id=@cat_id,
+    cat_path=CASE WHEN @cat_path IS NOT NULL AND @cat_path!='[]' THEN @cat_path ELSE cat_path END,
+    descr=@descr,res=@res,
     price=@price,stock=@stock,img=COALESCE(NULLIF(@img,''),img),images=COALESCE(NULLIF(@images,''),images),visible=1,updated_at=@now WHERE sku=@sku`);
 
   let created = 0, updated = 0, skipped = 0, deactivated = 0;
@@ -339,37 +375,36 @@ app.post('/api/categories-sync', importLimiter, (req, res) => {
   const t = h.startsWith('Bearer ') ? h.slice(7) : '';
   if (!safeEqual(t, IMPORT_TOKEN)) return res.status(401).json({ error: 'Неверный токен выгрузки' });
 
-  const { groups } = req.body || {};
-  if (!Array.isArray(groups)) return res.status(400).json({ error: 'groups должен быть массивом' });
+  const { nodes } = req.body || {};
+  if (!Array.isArray(nodes)) return res.status(400).json({ error: 'nodes должен быть массивом' });
 
   const now = new Date().toISOString();
-  const ins = db.prepare('INSERT OR IGNORE INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,1,?,?)');
-  const has = db.prepare('SELECT id FROM categories WHERE name=?');
+  const findByCid = db.prepare('SELECT id FROM categories WHERE cat_id=?');
+  const insC = db.prepare('INSERT INTO categories(cat_id,parent_id,grp,name,depth,visible,sort_order,created_at) VALUES(@cat_id,@parent_id,@grp,@name,@depth,1,@sort,@now)');
+  const updC = db.prepare('UPDATE categories SET parent_id=@parent_id,grp=@grp,name=@name,depth=@depth,sort_order=@sort WHERE cat_id=@cat_id');
   let added = 0, kept = 0, removed = 0;
-  const incoming = new Set();
+  const incoming = [];
 
   const tx = db.transaction(() => {
-    let sg = 1;
-    for (const g of groups) {
-      const name = clamp((g || {}).name || '', 100).trim();
-      if (!name) continue;
-      incoming.add(name);
-      if (has.get(name)) kept++; else { ins.run(name, '', sg, now); added++; }
-      sg++;
-      let ss = 1;
-      for (const s of (g.subs || [])) {
-        const sub = clamp(s || '', 100).trim();
-        if (!sub || sub === name) continue;
-        incoming.add(sub);
-        if (has.get(sub)) kept++; else { ins.run(sub, name, ss, now); added++; }
-        ss++;
-      }
+    for (const n of nodes) {
+      const cat_id = parseInt(n && n.cat_id, 10);
+      if (!Number.isFinite(cat_id) || cat_id <= 0) continue;
+      const rec = {
+        cat_id,
+        parent_id: parseInt(n.parent_id, 10) || 0,
+        grp: clamp(n.grp || '', 100).trim(),
+        name: clamp(n.name || '', 150).trim() || String(cat_id),
+        depth: parseInt(n.depth, 10) || 0,
+        sort: parseInt(n.sort, 10) || 0,
+        now
+      };
+      incoming.push(cat_id);
+      if (findByCid.get(cat_id)) { updC.run(rec); kept++; }   // имя/родитель обновляем, visible сохраняем
+      else { insC.run(rec); added++; }
     }
-    // убираем только то, чего больше нет в выгрузке (ручные настройки оставшихся сохраняются)
-    if (incoming.size) {
-      const names = [...incoming];
-      const ph = names.map(() => '?').join(',');
-      removed = db.prepare(`DELETE FROM categories WHERE name NOT IN (${ph})`).run(...names).changes;
+    if (incoming.length) {
+      const ph = incoming.map(() => '?').join(',');
+      removed = db.prepare(`DELETE FROM categories WHERE cat_id NOT IN (${ph})`).run(...incoming).changes;
     }
   });
   try { tx(); }
@@ -525,7 +560,7 @@ app.post('/api/admin/import-file', auth, (req, res) => {
       if (!sku && model) sku = 'imp-' + model.toLowerCase().replace(/[^a-zа-я0-9]+/gi, '-').slice(0, 50);
       if (!sku) { skipped++; continue; }
       const rec = { sku, brand: clamp(get(r,'brand'),100), model, grp: clamp(get(r,'group'),100),
-        cat: clamp(get(r,'cat'),100), descr: clamp(get(r,'desc'),2000), res: clamp(get(r,'res'),100),
+        cat: clamp(get(r,'cat'),100), descr: clamp(get(r,'desc'),6000), res: clamp(get(r,'res'),100),
         price: Math.max(0, Math.round(Number(String(get(r,'price')).replace(/[^\d.]/g,'')) || 0)),
         stock: Math.max(0, Math.round(Number(String(get(r,'stock')).replace(/[^\d.]/g,'')) || 0)),
         img: clamp(get(r,'img'),500), now };
@@ -577,55 +612,33 @@ app.delete('/api/admin/orders/:id', auth, (req, res) => {
 
 // ---------- АДМИНКА: управление категориями ----------
 app.get('/api/admin/categories', auth, (req, res) => {
-  // отдаём категории + счётчик товаров в каждой (для удобства)
-  const cats = db.prepare('SELECT * FROM categories ORDER BY sort_order, name').all();
-  const counts = {};
-  db.prepare('SELECT grp, COUNT(*) c FROM products WHERE visible=1 GROUP BY grp').all().forEach(r => { counts[r.grp] = r.c; });
-  const catCounts = {};
-  db.prepare('SELECT cat, COUNT(*) c FROM products WHERE visible=1 GROUP BY cat').all().forEach(r => { catCounts[r.cat] = r.c; });
-  res.json(cats.map(c => ({ id: c.id, name: c.name, parent: c.parent || '', visible: !!c.visible, sort_order: c.sort_order, products: (counts[c.name] || 0) + (c.parent ? (catCounts[c.name] || 0) : 0) })));
+  const cats = db.prepare('SELECT id,cat_id,parent_id,grp,name,depth,visible,sort_order FROM categories ORDER BY grp, sort_order, name').all();
+  // счётчик товаров по узлу (товар учитывается в своём листе и во всех его предках)
+  const count = {};
+  for (const r of db.prepare('SELECT cat_path FROM products WHERE visible=1').all()) {
+    let path = []; try { path = JSON.parse(r.cat_path || '[]'); } catch (e) {}
+    for (const id of path) count[id] = (count[id] || 0) + 1;
+  }
+  res.json(cats.map(c => ({ id: c.id, catId: c.cat_id, parentId: c.parent_id, group: c.grp || '', name: c.name || '', depth: c.depth || 0, visible: !!c.visible, sort_order: c.sort_order, products: count[c.cat_id] || 0 })));
 });
 app.post('/api/admin/categories', auth, (req, res) => {
-  const name = clamp((req.body || {}).name, 100).trim();
-  if (!name) return res.status(400).json({ error: 'Название обязательно' });
-  try {
-    const maxSort = db.prepare('SELECT COALESCE(MAX(sort_order),0) m FROM categories').get().m;
-    const info = db.prepare('INSERT INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,?,?,?)')
-      .run(name, clamp(req.body.parent, 100), req.body.visible === false ? 0 : 1, maxSort + 1, new Date().toISOString());
-    res.json({ id: info.lastInsertRowid });
-  } catch (e) {
-    if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'Такая категория уже есть' });
-    throw e;
-  }
+  res.status(400).json({ error: 'Категории формируются автоматически из импорта Al-Style. Чтобы скрыть лишние — используйте переключатель видимости.' });
 });
 app.put('/api/admin/categories/:id', auth, (req, res) => {
   const b = req.body || {};
   const cur = db.prepare('SELECT * FROM categories WHERE id=?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: 'Категория не найдена' });
-  const newName = b.name != null ? clamp(b.name, 100).trim() : cur.name;
+  const name = b.name != null ? clamp(b.name, 150).trim() : cur.name;
   const visible = b.visible != null ? (b.visible ? 1 : 0) : cur.visible;
   const sort = b.sort_order != null ? Number(b.sort_order) : cur.sort_order;
-  try {
-    db.prepare('UPDATE categories SET name=?, visible=?, sort_order=? WHERE id=?').run(newName, visible, sort, cur.id);
-    // если переименовали — переносим связь у товаров: подкатегория связана через cat, раздел — через grp
-    if (newName !== cur.name) {
-      if (cur.parent) db.prepare('UPDATE products SET cat=? WHERE cat=?').run(newName, cur.name);
-      else db.prepare('UPDATE products SET grp=? WHERE grp=?').run(newName, cur.name);
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    if (String(e.message).includes('UNIQUE')) return res.status(409).json({ error: 'Категория с таким названием уже есть' });
-    throw e;
-  }
+  db.prepare('UPDATE categories SET name=?, visible=?, sort_order=? WHERE id=?').run(name, visible, sort, cur.id);
+  res.json({ ok: true });
 });
 app.delete('/api/admin/categories/:id', auth, (req, res) => {
-  const cur = db.prepare('SELECT name, parent FROM categories WHERE id=?').get(Number(req.params.id));
+  const cur = db.prepare('SELECT cat_id FROM categories WHERE id=?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: 'Категория не найдена' });
-  const col = cur.parent ? 'cat' : 'grp';
-  const cnt = db.prepare(`SELECT COUNT(*) c FROM products WHERE ${col}=?`).get(cur.name).c;
-  if (cnt > 0 && !req.query.force) return res.status(409).json({ error: `В категории ${cnt} товаров. Удаление переместит их в «без категории». Повторите с подтверждением.`, count: cnt });
   db.prepare('DELETE FROM categories WHERE id=?').run(Number(req.params.id));
-  res.json({ ok: true });
+  res.json({ ok: true, note: 'Удалено. При следующем импорте категория вернётся — чтобы убрать насовсем, используйте видимость.' });
 });
 
 
@@ -817,8 +830,10 @@ app.get('/sitemap.xml', (req, res) => {
   const SITE = process.env.SITE_URL || 'https://servis-com.kz';
   const pages = ['/', '/videonablyudenie.html', '/setevoe.html', '/pozharnaya.html', '/skud.html'];
   const prods = db.prepare('SELECT sku, updated_at, img FROM products WHERE visible=1').all();
+  const lastCat = (db.prepare('SELECT MAX(updated_at) m FROM products WHERE visible=1').get() || {}).m;
+  const siteLm = lastCat ? `<lastmod>${String(lastCat).slice(0, 10)}</lastmod>` : '';
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n';
-  pages.forEach(u => xml += `<url><loc>${SITE}${u}</loc><changefreq>weekly</changefreq><priority>${u==='/'?'1.0':'0.8'}</priority></url>\n`);
+  pages.forEach(u => xml += `<url><loc>${SITE}${u}</loc>${siteLm}<changefreq>weekly</changefreq><priority>${u==='/'?'1.0':'0.8'}</priority></url>\n`);
   prods.forEach(p => {
     const lm = p.updated_at ? `<lastmod>${String(p.updated_at).slice(0,10)}</lastmod>` : '';
     let imgTag = '';
@@ -885,19 +900,7 @@ if (String(process.env.SEED_ON_EMPTY).toLowerCase() === 'true') {
         console.log('[seed] стартовый каталог загружен:', items.length, 'товаров');
       }
     }
-    // категории
-    const catCnt = db.prepare('SELECT COUNT(*) c FROM categories').get().c;
-    if (catCnt === 0) {
-      const fs3 = require('fs'); const catFile = path.join(__dirname, 'scripts', 'seed-categories.json');
-      if (fs3.existsSync(catFile)) {
-        const cats = JSON.parse(fs3.readFileSync(catFile, 'utf8'));
-        const now2 = new Date().toISOString();
-        const insC = db.prepare('INSERT OR IGNORE INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,?,?,?)');
-        const txC = db.transaction(list => { for (const c of list) insC.run(c.name, c.parent || '', c.visible ? 1 : 0, c.sort_order || 100, now2); });
-        txC(cats);
-        console.log('[seed] категории загружены:', cats.length);
-      }
-    }
+    // Категории больше не сидим из файла — дерево формируется из импорта Al-Style (по ID).
   } catch (e) { console.warn('[seed] автозагрузка пропущена:', e.message); }
 }
 

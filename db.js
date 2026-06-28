@@ -50,14 +50,18 @@ CREATE INDEX IF NOT EXISTS idx_orders_ts ON orders(ts);
 
 CREATE TABLE IF NOT EXISTS categories(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT UNIQUE,
-  parent TEXT DEFAULT '',       -- родительская категория (пусто = верхний уровень)
+  cat_id INTEGER UNIQUE,          -- ID категории Al-Style (стабильный ключ; имена могут повторяться)
+  parent_id INTEGER DEFAULT 0,    -- ID родителя в дереве (0 = верхний уровень внутри группы)
+  grp TEXT DEFAULT '',            -- наша группа-раздел (Видеонаблюдение и т.п.)
+  name TEXT,
+  depth INTEGER DEFAULT 0,
   visible INTEGER DEFAULT 1,
   sort_order INTEGER DEFAULT 100,
   created_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cat_visible ON categories(visible);
-CREATE INDEX IF NOT EXISTS idx_cat_parent ON categories(parent);
+CREATE INDEX IF NOT EXISTS idx_cat_parentid ON categories(parent_id);
+CREATE INDEX IF NOT EXISTS idx_cat_grp ON categories(grp);
 
 CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
@@ -72,11 +76,31 @@ function ensureColumn(table,col,ddl){
 }
 ensureColumn('products','created_at','created_at TEXT');
 ensureColumn('products','images','images TEXT');
+ensureColumn('products','cat_id','cat_id INTEGER DEFAULT 0'); // ID листовой категории Al-Style
+ensureColumn('products','cat_path','cat_path TEXT'); // путь категорий (JSON: [id верхнего..id листа])
 ensureColumn('import_log','deactivated','deactivated INTEGER DEFAULT 0');
 ensureColumn('import_log','skipped','skipped INTEGER DEFAULT 0');
 ensureColumn('orders','cust_name','cust_name TEXT');
 ensureColumn('orders','cust_phone','cust_phone TEXT');
 ensureColumn('orders','done_at','done_at TEXT');
+
+// Миграция categories на дерево по ID Al-Style: если таблица старого вида (без cat_id) —
+// пересоздаём (категории всё равно восстанавливаются при следующем импорте).
+try {
+  const cols = db.prepare("PRAGMA table_info(categories)").all();
+  if (cols.length && !cols.some(c => c.name === 'cat_id')) {
+    db.exec('DROP TABLE IF EXISTS categories');
+    db.exec(`CREATE TABLE categories(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cat_id INTEGER UNIQUE, parent_id INTEGER DEFAULT 0, grp TEXT DEFAULT '',
+      name TEXT, depth INTEGER DEFAULT 0, visible INTEGER DEFAULT 1,
+      sort_order INTEGER DEFAULT 100, created_at TEXT)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cat_visible ON categories(visible)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cat_parentid ON categories(parent_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_cat_grp ON categories(grp)');
+    console.log('[db] categories мигрирована на дерево по ID Al-Style (перезаполнится при импорте)');
+  }
+} catch (e) { console.error('[db] миграция categories:', e.message); }
 ensureColumn('categories','parent',"parent TEXT DEFAULT ''");
 
 module.exports=db;

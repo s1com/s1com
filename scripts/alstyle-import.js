@@ -110,30 +110,58 @@ function httpPost(urlStr, headers, body) {
   });
 }
 
-// ─────────────── Дерево категорий → диапазоны веток (nested sets) и привязка листьев к группам
+// ─────────────── Дерево категорий → привязка к группам + родитель/глубина/путь (nested sets)
 async function buildGroups() {
   const raw = await apiGet('categories', {});
   const list = Array.isArray(raw) ? raw : (raw.data || raw.elements || []);
   const byId = new Map(list.map(c => [String(c.id), c]));
+
+  // корни наших разделов из BRANCH_MAP
   const ranges = [];
   for (const [pid, group] of BRANCH_MAP) {
     const node = byId.get(String(pid));
     if (!node) { console.warn(`⚠ ветка ${pid} (${group}) не найдена в дереве — пропущена`); continue; }
-    ranges.push({ left: +node.left, right: +node.right, group, name: node.name });
+    ranges.push({ id: String(pid), left: +node.left, right: +node.right, group, name: node.name });
   }
-  const leafGroup = new Map(); // id листа → группа сайта
-  const leafName  = new Map(); // id → имя категории
-  let plan = {};               // группа → {count, leaves}
+
+  // родитель каждой категории через nested sets (стек по возрастанию left)
+  const sorted = list.slice().sort((a, b) => (+a.left) - (+b.left));
+  const parentOf = new Map(); // id → parentId | null
+  const stack = [];
+  for (const c of sorted) {
+    while (stack.length && +stack[stack.length - 1].right < +c.right) stack.pop();
+    parentOf.set(String(c.id), stack.length ? String(stack[stack.length - 1].id) : null);
+    stack.push(c);
+  }
+
+  const leafGroup = new Map(); // id → группа (только внутри веток)
+  const leafName  = new Map(); // id → имя (для всех)
+  const catMeta   = new Map(); // id → {name, parentId(в дереве, 0=верхний под группой), grp, depth, left}
+  let plan = {};
   for (const c of list) {
     leafName.set(String(c.id), c.name);
     const L = +c.left;
-    const r = ranges.find(r => L > r.left && L < r.right); // строго внутри ветки = подкатегория
+    const r = ranges.find(rr => L > rr.left && L < rr.right); // строго внутри ветки
     if (!r) continue;
     leafGroup.set(String(c.id), r.group);
+    const par = parentOf.get(String(c.id));
+    const parentId = (par && par !== r.id) ? +par : 0; // если родитель = корень ветки → верхний уровень
+    let depth = 0, cur = String(c.id);
+    while (true) { const p = parentOf.get(cur); if (!p || p === r.id) break; depth++; cur = p; }
+    catMeta.set(String(c.id), { name: c.name, parentId, grp: r.group, depth, left: L });
     if ((+c.elements || 0) > 0) { (plan[r.group] = plan[r.group] || { count: 0 }); plan[r.group].count += (+c.elements || 0); }
   }
+
+  // путь категорий товара: [id верхнего-под-группой, …, id листа] (корень ветки исключён)
+  function pathOf(leafId) {
+    const out = [];
+    let cur = String(leafId);
+    while (cur && leafGroup.has(cur)) { out.unshift(+cur); const p = parentOf.get(cur); if (!p) break; cur = p; }
+    return out;
+  }
+
   const targetLeafIds = list.filter(c => (+c.elements || 0) > 0 && leafGroup.has(String(c.id))).map(c => String(c.id));
-  return { leafGroup, leafName, plan, targetLeafIds };
+  return { leafGroup, leafName, catMeta, parentOf, ranges, pathOf, plan, targetLeafIds };
 }
 
 // ─────────────── Утилиты товара
@@ -212,25 +240,28 @@ function stripHtml(s) {
     .replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&[a-z]+;/gi, ' ')
     .replace(/\s+/g, ' ').replace(/\s*\.\s*\./g, '.').trim();
 }
-function transform(el, leafGroup, leafName) {
+function transform(el, leafGroup, leafName, pathOf) {
   const article = el.article; if (article == null || article === '') return null;
   const group = leafGroup.get(String(el.category)) || '';
   const cat = leafName.get(String(el.category)) || String(el.category || '');
-  const model = String(el.article_pn || el.name || '').trim().slice(0, 120);
-  const desc = stripHtml(el.description || el.full_name || el.name || '').slice(0, 2000);
+  const model = String(el.name || el.article_pn || '').trim().slice(0, 200);
+  const desc = stripHtml(el.description || el.full_name || el.name || '').slice(0, 6000);
   const imgs = pickImages(el);
+  const cat_path = pathOf ? pathOf(String(el.category)) : [];
   return Object.assign({
     sku: String(article),
     brand: String(el.brand || '').trim(),
     model,
     group, cat: String(cat).slice(0, 100),
+    cat_id: Number(el.category) || 0,
+    cat_path,
     desc,
     res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: imgs[0] || '', images: imgs,
   }, enrich(group, cat));
 }
 
 // ─────────────── Сбор товаров по целевым листам (с пагинацией, чанками категорий)
-async function collect(leafGroup, leafName, targetLeafIds, firstPageOnly) {
+async function collect(leafGroup, leafName, targetLeafIds, firstPageOnly, pathOf) {
   const out = [];
   for (let i = 0; i < targetLeafIds.length; i += CFG.CAT_CHUNK) {
     const chunk = targetLeafIds.slice(i, i + CFG.CAT_CHUNK).join(',');
@@ -242,7 +273,7 @@ async function collect(leafGroup, leafName, targetLeafIds, firstPageOnly) {
       });
       const els = r.elements || [];
       totalPages = (r.pagination && r.pagination.totalPages) || 1;
-      for (const el of els) { const t = transform(el, leafGroup, leafName); if (t) out.push(t); }
+      for (const el of els) { const t = transform(el, leafGroup, leafName, pathOf); if (t) out.push(t); }
       process.stdout.write(`\r  собрано ${out.length}…   `); page++;
       if (firstPageOnly) break;
     } while (page <= totalPages);
@@ -281,16 +312,19 @@ async function pushBatch(products) {
   try { return await httpPost(url, headers, body); } catch (e) { await new Promise(r => setTimeout(r, 2000)); return httpPost(url, headers, body); }
 }
 
-// Дерево категорий (наши группы + подкатегории из товаров) → сайт (/api/categories-sync, полная замена)
-async function syncCategories(products) {
-  const order = [], byGroup = {};
-  for (const [, g] of BRANCH_MAP) if (!order.includes(g)) order.push(g);
-  for (const p of products) { if (!p.group) continue; (byGroup[p.group] = byGroup[p.group] || new Set()); if (p.cat) byGroup[p.group].add(p.cat); }
-  const groups = order.filter(g => byGroup[g]).map(g => ({ name: g, subs: [...byGroup[g]].sort((a, b) => a.localeCompare(b, 'ru')) }));
-  const body = JSON.stringify({ groups });
+// Дерево категорий (узлы по ID Al-Style, что встречаются в путях товаров) → сайт (полная замена)
+async function syncCategories(products, catMeta) {
+  const used = new Set();
+  for (const p of products) for (const id of (p.cat_path || [])) used.add(+id);
+  const nodes = [...used]
+    .map(id => { const m = catMeta.get(String(id)); return m ? { cat_id: +id, parent_id: m.parentId || 0, grp: m.grp || '', name: m.name || String(id), depth: m.depth || 0, left: m.left || 0 } : null; })
+    .filter(Boolean)
+    .sort((a, b) => a.left - b.left)
+    .map((n, i) => ({ cat_id: n.cat_id, parent_id: n.parent_id, grp: n.grp, name: n.name, depth: n.depth, sort: i + 1 }));
+  const body = JSON.stringify({ nodes });
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
   const r = await httpPost(CFG.SITE_URL.replace(/\/$/, '') + '/api/categories-sync', headers, body);
-  console.log(`Категории обновлены: групп ${groups.length}, подкатегорий ${groups.reduce((s, g) => s + g.subs.length, 0)}.`);
+  console.log(`Категории обновлены: узлов дерева ${nodes.length}.`);
   return r;
 }
 
@@ -315,7 +349,7 @@ async function syncCategories(products) {
       return;
     }
 
-    const { leafGroup, leafName, plan, targetLeafIds } = await buildGroups();
+    const { leafGroup, leafName, catMeta, pathOf, plan, targetLeafIds } = await buildGroups();
 
     if (args.includes('--plan')) {
       console.log('План импорта (из дерева категорий, без заливки):\n');
@@ -328,14 +362,14 @@ async function syncCategories(products) {
 
     if (args.includes('--probe')) {
       console.log('Проба (первая страница каждого чанка категорий)…');
-      const sample = await collect(leafGroup, leafName, targetLeafIds, true);
+      const sample = await collect(leafGroup, leafName, targetLeafIds, true, pathOf);
       console.log(`Примеры (3 из ${sample.length}):\n` + JSON.stringify(sample.slice(0, 3), null, 2));
       console.log(`\nБез фото: ${sample.filter(p=>!p.img).length}, цена по запросу(0): ${sample.filter(p=>!p.price).length}`);
       return;
     }
 
     console.log('Сбор каталога Al-Style…');
-    const products = await collect(leafGroup, leafName, targetLeafIds, false);
+    const products = await collect(leafGroup, leafName, targetLeafIds, false, pathOf);
     console.log('Всего к загрузке:', products.length);
     if (!products.length) { console.log('Пусто — проверьте BRANCH_MAP.'); return; }
     if (args.includes('--dry')) { console.log('[--dry] Первые 3:\n' + JSON.stringify(products.slice(0,3), null, 2)); return; }
@@ -347,6 +381,6 @@ async function syncCategories(products) {
       console.log(`  пачка ${Math.floor(i/CFG.BATCH)+1}: +${r.created||0} / ~${r.updated||0}`);
     }
     console.log(`Готово. Создано ${created}, обновлено ${updated}, снято с показа ${deactivated}, пропущено ${skipped}.`);
-    try { await syncCategories(products); } catch (e) { console.error('Категории не обновились:', e.message); }
+    try { await syncCategories(products, catMeta); } catch (e) { console.error('Категории не обновились:', e.message); }
   } catch (e) { console.error('ОШИБКА:', e.message); process.exit(1); }
 })();

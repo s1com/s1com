@@ -27,7 +27,7 @@ setTimeout(async()=>{
   ok(r.j.created>=1,'import: товар создан');
   const pub=await rq('/api/products');
   const t1=pub.j.find(p=>p.sku==='T-1');
-  ok(t1 && t1.stock===undefined && t1.inStock===true,'public API: точный остаток скрыт, есть inStock');
+  ok(t1 && t1.stock===5 && t1.inStock===true,'public API: остаток показывается (5), есть inStock');
   const adm=await rq('/api/admin/products',null,tok);
   ok(adm.j.find(p=>p.sku==='T-1').stock===5,'admin API: точный остаток виден (5)');
   await rq('/api/import',{products:[{sku:'RND-1',brand:'Z',price:1000}]},process.env.IMPORT_TOKEN);

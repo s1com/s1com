@@ -64,7 +64,26 @@ function buildFacet(title,field,values,collapsed){
   const cl=collapsed&&!F[field].size?' collapsed':''; // свёрнут, пока в нём ничего не выбрано
   return '<div class="facet'+cl+'"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">'+title+'</h3><div class="opts">'+opts+'</div></div>';
 }
-function toggleF(field,v){F[field].has(v)?F[field].delete(v):F[field].add(v);render();renderActiveTags();}
+function toggleF(field,v){F[field].has(v)?F[field].delete(v):F[field].add(v);render();renderActiveTags();updateFilterBadge();}
+function findCatPath(nodes,id,acc){
+  for(const n of (nodes||[])){
+    const a=acc.concat(n.id);
+    if(n.id===id) return a;
+    if(n.children){ const r=findCatPath(n.children,id,a); if(r) return r; }
+  }
+  return null;
+}
+function renderTreeNodes(nodes,activeSet,depth){
+  let h='';
+  for(const n of (nodes||[])){
+    const on=n.id===curCat;
+    const open=activeSet.has(n.id);
+    const tw=n.children?'<span class="tw">'+(open?'\u25BE':'\u25B8')+'</span>':'<span class="tw"></span>';
+    h+='<a class="catnav-sub'+(on?' active':'')+'" style="padding-left:'+(10+depth*14)+'px" onclick="selectCat('+n.id+')">'+tw+esc(n.name)+'</a>';
+    if(n.children && open) h+=renderTreeNodes(n.children,activeSet,depth+1);
+  }
+  return h;
+}
 function renderCategoryNav(){
   if(!CATTREE||!CATTREE.length) return '';
   let items='<a class="catnav-item'+(curGroup==='\u0412\u0441\u0435'?' active':'')+'" onclick="selectGroup(\'\u0412\u0441\u0435\')">\u0412\u0441\u0435 \u0442\u043E\u0432\u0430\u0440\u044B</a>';
@@ -72,10 +91,10 @@ function renderCategoryNav(){
     const nm=t.name.replace(/'/g,"\\'");
     const on=curGroup===t.name;
     items+='<a class="catnav-item'+(on?' active':'')+'" onclick="selectGroup(\''+nm+'\')">'+esc(t.name)+'</a>';
-    if(on && (t.subcategories||[]).length){
-      items+='<div class="catnav-subs"><a class="catnav-sub'+(curSub===''?' active':'')+'" onclick="selectSub(\'\')">\u0412\u0441\u0435 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>';
-      (t.subcategories||[]).forEach(s=>{ items+='<a class="catnav-sub'+(curSub===s?' active':'')+'" onclick="selectSub(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
-      items+='</div>';
+    if(on && (t.nodes||[]).length){
+      const path=curCat?findCatPath(t.nodes,curCat,[]):null;
+      const activeSet=new Set(path||[]);
+      items+='<div class="catnav-subs"><a class="catnav-sub'+(curCat===0?' active':'')+'" style="padding-left:10px" onclick="selectCat(0)">\u0412\u0441\u0435 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>'+renderTreeNodes(t.nodes,activeSet,0)+'</div>';
     }
   });
   return '<div class="facet catnav"><h3>\u041A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438</h3><div class="opts">'+items+'</div></div>';
@@ -84,18 +103,35 @@ function renderSidebar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
   const types=[...new Set(POOL.map(p=>p.type).filter(t=>t&&t!=='\u041F\u0440\u043E\u0447\u0435\u0435'))].sort();
   const mps=['2 \u041C\u041F','3 \u041C\u041F','4 \u041C\u041F','5 \u041C\u041F','6 \u041C\u041F','8 \u041C\u041F'];
-  const conns=['PoE','Wi-Fi'];
-  let h=renderCategoryNav();
-  const facets=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands,true)
-    +buildFacet('\u0422\u0438\u043F','type',types,true)
+  // каталог категорий — в левый сайдбар
+  document.getElementById('facets').innerHTML=renderCategoryNav();
+  // фильтры рядом с сортировкой; Тип/Разрешение появляются только если в текущей категории есть такие товары
+  const facets=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands,false)
+    +buildFacet('\u0422\u0438\u043F','type',types,false)
     +buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps,false)
-    +buildFacet('\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435','conn',conns,false)
     +'<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'
-    +'<input type="number" id="pmin" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render()">'
-    +'<input type="number" id="pmax" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render()"></div></div></div>';
-  if(facets) h+='<div class="filters-head">\u0424\u0438\u043B\u044C\u0442\u0440\u044B</div>'+facets;
-  h+='<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
-  document.getElementById('facets').innerHTML=h;
+    +'<input type="number" id="pmin" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render();updateFilterBadge()">'
+    +'<input type="number" id="pmax" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render();updateFilterBadge()"></div></div></div>'
+    +'<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
+  mountFilterDropdown(facets);
+}
+function activeFilterCount(){let n=F.brand.size+F.type.size+F.mp.size;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
+function updateFilterBadge(){const b=document.getElementById('filterBtn');if(b){const n=activeFilterCount();b.innerHTML='\u2699 \u0424\u0438\u043B\u044C\u0442\u0440\u044B'+(n?' <span class="fbadge">'+n+'</span>':'');}}
+function mountFilterDropdown(html){
+  const sort=document.getElementById('sortsel');
+  let wrap=document.getElementById('filterWrap');
+  if(!wrap && sort && sort.parentNode){
+    wrap=document.createElement('span');wrap.id='filterWrap';wrap.className='filterwrap';
+    const btn=document.createElement('button');btn.id='filterBtn';btn.type='button';btn.className='filterbtn';
+    btn.onclick=function(e){e.stopPropagation();wrap.classList.toggle('open');};
+    const drop=document.createElement('div');drop.id='filterDrop';drop.className='filterdrop';
+    drop.onclick=function(e){e.stopPropagation();};
+    wrap.appendChild(btn);wrap.appendChild(drop);
+    sort.parentNode.insertBefore(wrap,sort);
+    document.addEventListener('click',function(){wrap.classList.remove('open');});
+    const old=document.querySelector('.filter-toggle');if(old)old.style.display='none'; // старую кнопку прячем
+  }
+  if(wrap){document.getElementById('filterDrop').innerHTML=html;updateFilterBadge();}
 }
 function clearFilters(){F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:F.sort};
   document.getElementById('search').value='';renderSidebar();render();renderActiveTags();}
@@ -129,10 +165,13 @@ function cardHTML(it){
   const badge=it.promo?'<span class="fire-badge">\uD83D\uDD25 \u0410\u041A\u0426\u0418\u042F</span>':'';
   const img=(it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" onerror="imgFail(this)" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
   let price;
+  const stockHtml=it.inStock
+    ?'<div class="stock">\u2713 \u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438'+(it.stock?': '+it.stock+' \u0448\u0442':'')+'</div>'
+    :'<div class="stock under">\u041F\u043E\u0434 \u0437\u0430\u043A\u0430\u0437</div>';
   if(it.price){
     const old=(it.promo&&it.oldprice)?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
-    price='<div class="price">'+old+fmt(it.price)+' <small>\u0420\u0420\u0426</small></div><div class="stock">\u041E\u043F\u0442 \u2014 \u043F\u0440\u0438 \u0437\u0430\u043A\u0430\u0437\u0435</div>';
-  } else price='<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>';
+    price='<div class="price">'+old+fmt(it.price)+' <small>\u0420\u0420\u0426</small></div>'+stockHtml;
+  } else price='<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>'+stockHtml;
   return '<div class="card"><a class="imgbox" href="/product/'+encodeURIComponent(it.sku||it.id)+'">'+badge+img+'</a><div class="cbody">'+
     '<div class="brand">'+esc(it.brand||it.cat)+'</div><div class="cmodel">'+esc(it.model)+'</div>'+
     '<div class="cdesc">'+(it.res?esc(it.res)+'. ':'')+esc(it.desc)+'</div><div class="cprice">'+price+'</div>'+
@@ -189,54 +228,64 @@ function updateMoreBtn(){
 }
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sbOverlay').classList.toggle('open');}
 
-// Переключение направления (категории) на главной — фильтрация на месте
-let CATTREE=[], curSub='';
+// Переключение раздела/категории по дереву (фильтрация на месте по пути категорий)
+let CATTREE=[], curCat=0;
+function recomputePool(){
+  let base=(curGroup==='\u0412\u0441\u0435')?PRODUCTS:PRODUCTS.filter(p=>p.group===curGroup);
+  POOL=curCat?base.filter(p=>(p.catPath||[]).includes(curCat)):base;
+}
 function selectGroup(g){
-  curGroup=g; curSub='';
-  POOL=(g==='Все')?PRODUCTS:PRODUCTS.filter(p=>p.group===g);
+  curGroup=g; curCat=0; recomputePool();
   F.brand.clear&&F.brand.clear(); F.type&&F.type.clear&&F.type.clear(); F.mp&&F.mp.clear&&F.mp.clear(); F.conn&&F.conn.clear&&F.conn.clear();
   renderSidebar();renderPromoStrip();render();renderActiveTags();
   if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
   window.scrollTo({top:0,behavior:'smooth'});
 }
-// Подкатегории выбранного раздела (фильтр по полю товара cat)
-function selectSub(sub){
-  curSub=sub;
-  POOL=PRODUCTS.filter(p=>p.group===curGroup && (sub===''||p.cat===sub));
+// Выбор категории любого уровня дерева
+function selectCat(catId){
+  curCat=Number(catId)||0; recomputePool();
   renderSidebar();render();renderActiveTags();
   if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
 }
 function buildSubChips(g){
   const box=document.getElementById('subChips'); if(!box) return;
   const node=CATTREE.find(t=>t.name===g);
-  const subs=(node&&node.subcategories)?node.subcategories:[];
-  if(g==='Все'||!subs.length){box.innerHTML='';box.style.display='none';return;}
+  const tops=(node&&node.nodes)?node.nodes:[];
+  if(g==='Все'||!tops.length){box.innerHTML='';box.style.display='none';return;}
   box.style.display='flex';
-  let html='<a class="subchip active" data-s="" onclick="selectSub(\'\')">Все в разделе</a>';
-  subs.forEach(s=>{ html+='<a class="subchip" data-s="'+esc(s)+'" onclick="selectSub(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
+  let html='<a class="subchip'+(curCat===0?' active':'')+'" onclick="selectCat(0)">Все в разделе</a>';
+  tops.forEach(n=>{ html+='<a class="subchip'+(curCat===n.id?' active':'')+'" onclick="selectCat('+n.id+')">'+esc(n.name)+'</a>'; });
   box.innerHTML=html;
 }
-// Построение чипов направлений из дерева видимых категорий (управляются в админке)
+// Чипы направлений из дерева видимых категорий
 function buildCategoryChips(){
   fetch('/api/categories').then(r=>r.json()).then(tree=>{
     CATTREE=Array.isArray(tree)?tree:[];
-    const box=document.getElementById('dirChips'); // на прочих страницах верхние чипы ещё могут быть
+    const box=document.getElementById('dirChips');
     if(box){
       let html='<a class="chip catalog-btn" onclick="openCatalog()">📂 Все категории</a>';
       html+='<a class="chip active" data-g="Все" onclick="selectGroup(\'Все\')">Все товары</a>';
       CATTREE.forEach(t=>{ html+='<a class="chip" data-g="'+esc(t.name)+'" onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
       box.innerHTML=html;
     }
-    renderSidebar(); // дерево категорий теперь в сайдбаре
+    renderSidebar();
   }).catch(()=>{});
 }
-// Вкладка «Все категории» — полное дерево, выбор любой категории/подкатегории
 function buildCatalogOverlay(){
   if(document.getElementById('catalogOverlay')) return;
   const ov=document.createElement('div');
   ov.id='catalogOverlay'; ov.className='catalog-overlay';
   ov.onclick=e=>{ if(e.target===ov) closeCatalog(); };
   document.body.appendChild(ov);
+}
+function catalogNodeHTML(group,nodes,depth){
+  let h='';
+  for(const n of (nodes||[])){
+    const cls=depth===0?'catalog-sub catalog-sub0':'catalog-sub';
+    h+='<a class="'+cls+'" style="padding-left:'+(depth*12)+'px" onclick="pickCat(\''+group.replace(/'/g,"\\'")+'\','+n.id+')">'+esc(n.name)+'</a>';
+    if(n.children) h+=catalogNodeHTML(group,n.children,depth+1);
+  }
+  return h;
 }
 function openCatalog(){
   buildCatalogOverlay();
@@ -245,15 +294,13 @@ function openCatalog(){
   if(!CATTREE.length){ html+='<p style="color:#888">Категории загружаются…</p>'; }
   CATTREE.forEach(t=>{
     const nm=t.name.replace(/'/g,"\\'");
-    html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',\'\')">'+esc(t.name)+'</a>';
-    (t.subcategories||[]).forEach(s=>{ html+='<a class="catalog-sub" onclick="pickCat(\''+nm+'\',\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
-    html+='</div>';
+    html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',0)">'+esc(t.name)+'</a>'+catalogNodeHTML(t.name,t.nodes,0)+'</div>';
   });
   html+='</div></div>';
   ov.innerHTML=html; ov.classList.add('open');
 }
 function closeCatalog(){ const ov=document.getElementById('catalogOverlay'); if(ov)ov.classList.remove('open'); }
-function pickCat(top,sub){ closeCatalog(); selectGroup(top); if(sub) setTimeout(()=>selectSub(sub),50); }
+function pickCat(group,catId){ closeCatalog(); selectGroup(group); if(catId) setTimeout(()=>selectCat(catId),60); }
 
 loadCart();
 // индикатор загрузки каталога
@@ -261,7 +308,7 @@ loadCart();
 function loadCatalog(){
   fetch('/api/products').then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }).then(d=>{
     PRODUCTS=d;
-    POOL=curGroup==='\u0412\u0441\u0435'?d:d.filter(p=>p.group===curGroup);
+    recomputePool();
     renderSidebar();renderPromoStrip();render();updateCartUI();renderActiveTags();
     buildCategoryChips();
     const s=document.getElementById('search'); if(s&&!s.dataset.bound){ s.dataset.bound='1'; let _st; const dr=()=>{clearTimeout(_st);_st=setTimeout(render,180);}; s.addEventListener('input',dr); }

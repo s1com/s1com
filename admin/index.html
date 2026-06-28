@@ -102,7 +102,7 @@ async function showApp(){
   document.getElementById('appui').classList.remove('hide');
   await load();
   loadOrdersBadge();
-  try{const cs=await (await fetch('/api/admin/categories',{headers:H()})).json();if(cs&&cs.length)GROUPS=cs.map(c=>c.name);}catch(e){}
+  try{const cs=await (await fetch('/api/admin/categories',{headers:H()})).json();if(cs&&cs.length){const gs=[...new Set(cs.map(c=>c.group).filter(Boolean))];if(gs.length)GROUPS=gs;}}catch(e){}
 }
 async function load(){
   const r=await fetch('/api/admin/products',{headers:H()});
@@ -319,53 +319,39 @@ async function showCats(){
 async function renderCats(){
   const box=document.getElementById('catBox');
   const r=await fetch('/api/admin/categories',{headers:H()}); const cats=await r.json();
-  const tops=cats.filter(c=>!c.parent);
-  function rowHtml(c,isSub){
-    const nm=c.name.replace(/'/g,"\\'");
-    const actions = isSub
-      ? '<button onclick="catDel('+c.id+',\''+nm+'\','+c.products+')" title="Удалить">✕</button>'
-      : '<button onclick="catAddSub('+c.id+',\''+nm+'\')" style="background:#eef;border:1px solid #ccd;color:#446;border-radius:6px;width:26px;height:26px;margin-right:4px" title="Подкатегория">+</button><button onclick="catDel('+c.id+',\''+nm+'\','+c.products+')" title="Удалить">✕</button>';
-    const nameStyle = isSub ? 'width:88%' : 'width:88%;font-weight:700';
-    const prefix = isSub ? '<span style="color:#bbb">└ </span>' : '';
-    return '<tr style="'+(isSub?'background:#fbfbfd':'')+'">'+
+  // дерево по группам: верхние узлы parentId=0, дети по parentId; отступ по depth
+  const byParent={}; cats.forEach(c=>{ (byParent[c.parentId||0]=byParent[c.parentId||0]||[]).push(c); });
+  const groups=[...new Set(cats.map(c=>c.group).filter(Boolean))];
+  function rowHtml(c){
+    const pad=10+(c.depth||0)*22;
+    const prefix=(c.depth>0)?'<span style="color:#bbb">'+('— '.repeat(c.depth))+'</span>':'';
+    return '<tr style="'+(c.depth>0?'background:#fbfbfd':'font-weight:700')+'">'+
       '<td style="text-align:center"><input type="checkbox" '+(c.visible?'checked':'')+' onchange="catSet('+c.id+',\'visible\',this.checked)" style="width:18px;height:18px;accent-color:#1a9e4b" title="Показывать на сайте"></td>'+
-      '<td style="'+(isSub?'padding-left:28px':'')+'">'+prefix+'<input value="'+esc(c.name)+'" onchange="catSet('+c.id+',\'name\',this.value)" style="'+nameStyle+'"></td>'+
+      '<td style="padding-left:'+pad+'px">'+prefix+'<input value="'+esc(c.name)+'" onchange="catSet('+c.id+',\'name\',this.value)" style="width:80%"></td>'+
       '<td><input type="number" value="'+c.sort_order+'" onchange="catSet('+c.id+',\'sort_order\',this.value)" style="width:64px" title="Порядок"></td>'+
       '<td style="text-align:center;color:'+(c.products>0?'#1a9e4b':'#bbb')+';font-weight:700">'+c.products+'</td>'+
-      '<td class="cd">'+actions+'</td></tr>';
+      '<td class="cd"><button onclick="catDel('+c.id+',\''+c.name.replace(/'/g,"\\'")+'\')" title="Удалить (вернётся при импорте)">✕</button></td></tr>';
   }
-  let rows='';
-  tops.forEach(t=>{
-    rows+=rowHtml(t,false);
-    cats.filter(c=>c.parent===t.name).forEach(sub=>{ rows+=rowHtml(sub,true); });
+  function walk(parentId,rows){ (byParent[parentId]||[]).forEach(c=>{ rows.push(rowHtml(c)); walk(c.catId,rows); }); }
+  let html='';
+  groups.forEach(g=>{
+    const rows=[]; (byParent[0]||[]).filter(c=>c.group===g).forEach(c=>{ rows.push(rowHtml(c)); walk(c.catId,rows); });
+    html+='<div style="margin:18px 0 6px;font-weight:800;color:#1a4d8f">'+esc(g)+'</div>'+
+      '<table><thead><tr><th style="width:70px">Показ</th><th>Категория (дерево Al-Style)</th><th style="width:70px">Порядок</th><th style="width:70px">Товаров</th><th style="width:50px"></th></tr></thead><tbody>'+rows.join('')+'</tbody></table>';
   });
-  box.innerHTML='<h3>🗂 Категории сайта (дерево)</h3>'+
-    '<p style="font-size:12.5px;color:#666;margin-bottom:10px">Галочка «показывать» управляет видимостью на сайте. Подкатегории (└) показываются под разделом вторым уровнем фильтра. «+» у раздела — добавить подкатегорию. «Товаров» — позиций в категории (пустые на сайте не покажут товаров, наполнятся из Al-Style). Переименование переносит товары.</p>'+
-    '<div style="display:flex;gap:8px;margin-bottom:12px"><input id="newCat" placeholder="Новый верхний раздел" style="flex:1;padding:9px;border:1.5px solid #ddd;border-radius:8px"><button onclick="catAdd()" style="background:#1a9e4b;color:#fff;padding:9px 16px">+ Добавить раздел</button></div>'+
-    '<table><thead><tr><th style="width:90px">Показ</th><th>Название (раздел / └ подкатегория)</th><th style="width:70px">Порядок</th><th style="width:70px">Товаров</th><th style="width:80px"></th></tr></thead><tbody>'+rows+'</tbody></table>';
-}
-async function catAddSub(parentId,parentName){
-  const name=prompt('Название подкатегории в разделе «'+parentName+'»:'); if(!name||!name.trim())return;
-  const r=await fetch('/api/admin/categories',{method:'POST',headers:H(),body:JSON.stringify({name:name.trim(),parent:parentName,visible:true})});
-  const d=await r.json(); if(r.ok)await renderCats(); else alert('Ошибка: '+(d.error||''));
+  if(!cats.length) html='<p style="color:#888">Дерево пустое. Запустите импорт Al-Style — категории сформируются автоматически.</p>';
+  box.innerHTML='<h3>🗂 Категории сайта (дерево Al-Style)</h3>'+
+    '<p style="font-size:12.5px;color:#666;margin-bottom:10px">Дерево формируется автоматически из импорта Al-Style по ID. Галочка «Показ» скрывает/показывает ветку на сайте (сохраняется между импортами). Скрытие родителя прячет и его подкатегории. «Товаров» — позиций в ветке и всех её подветках. Переименование и порядок временны: при следующем импорте имя берётся из Al-Style.</p>'+html;
 }
 async function catSet(id,field,val){
   if(field==='sort_order')val=parseInt(val)||100;
-  const body={}; body[field]=(field==='visible')?val:(field==='sort_order'?val:val);
+  const body={}; body[field]=val;
   await fetch('/api/admin/categories/'+id,{method:'PUT',headers:H(),body:JSON.stringify(body)});
   if(field==='name')await renderCats();
 }
-async function catAdd(){
-  const name=document.getElementById('newCat').value.trim(); if(!name){alert('Введите название');return;}
-  const r=await fetch('/api/admin/categories',{method:'POST',headers:H(),body:JSON.stringify({name,visible:true})});
-  const d=await r.json(); if(r.ok){document.getElementById('newCat').value='';await renderCats();}else alert('Ошибка: '+(d.error||''));
-}
-async function catDel(id,name,count){
-  if(count>0){ if(!confirm('В категории «'+name+'» '+count+' товаров. Удалить категорию? Товары останутся, но без категории.'))return;
-    await fetch('/api/admin/categories/'+id+'?force=1',{method:'DELETE',headers:H()});
-  } else { if(!confirm('Удалить категорию «'+name+'»?'))return;
-    await fetch('/api/admin/categories/'+id,{method:'DELETE',headers:H()});
-  }
+async function catDel(id,name){
+  if(!confirm('Удалить «'+name+'» из дерева?\n\nОна вернётся при следующем импорте. Чтобы убрать насовсем — снимите галочку «Показ».'))return;
+  await fetch('/api/admin/categories/'+id,{method:'DELETE',headers:H()});
   await renderCats();
 }
 

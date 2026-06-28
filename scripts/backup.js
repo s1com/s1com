@@ -5,6 +5,8 @@ const src=process.env.DB_PATH||path.join(__dirname,'..','data.sqlite');
 const dir=path.join(__dirname,'..','backups');
 if(!fs.existsSync(src)){console.error('База не найдена:',src);process.exit(1);}
 fs.mkdirSync(dir,{recursive:true});
+// сбрасываем WAL в основной файл, чтобы копия была консистентной (иначе свежие записи в -wal не попадут)
+try{const Database=require('better-sqlite3');const d=new Database(src);d.pragma('wal_checkpoint(TRUNCATE)');d.close();}catch(e){console.warn('checkpoint пропущен:',e.message);}
 const name='data-'+new Date().toISOString().replace(/[:.]/g,'-')+'.sqlite';
 fs.copyFileSync(src,path.join(dir,name));
 // храним последние 14 копий

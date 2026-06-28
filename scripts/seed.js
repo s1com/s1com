@@ -13,13 +13,4 @@ tx(items);
 console.log('Загружено товаров:',n);
 
 
-// Категории
-try {
-  const catItems = JSON.parse(require('fs').readFileSync(require('path').join(__dirname,'seed-categories.json'),'utf8'));
-  const insC = db.prepare('INSERT OR IGNORE INTO categories(name,parent,visible,sort_order,created_at) VALUES(?,?,?,?,?)');
-  const nowC = new Date().toISOString();
-  let cn=0;
-  const txC = db.transaction(list => { for (const c of list){ insC.run(c.name, c.parent||'', c.visible?1:0, c.sort_order||100, nowC); cn++; } });
-  txC(catItems);
-  console.log('Загружено категорий:', cn);
-} catch(e){ console.warn('категории не загружены:', e.message); }
+// Категории не сидим — дерево формируется из импорта Al-Style (alstyle-import.js) по ID.
