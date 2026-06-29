@@ -65,6 +65,76 @@ CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- ====== Мультипоставщик (Этап 1: фундамент) — всё аддитивно ======
+-- Поставщики (включая 1С). 1С заводится как поставщик kind='1c'.
+CREATE TABLE IF NOT EXISTS suppliers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE,                 -- 'alstyle','1c','supplier2'…
+  name TEXT,
+  kind TEXT DEFAULT 'api',          -- api | file | 1c
+  priority INTEGER DEFAULT 100,     -- меньше = приоритетнее (1С обычно 0)
+  markup_pct REAL DEFAULT 40,       -- наценка по умолчанию, процент (40 = +40%)
+  active INTEGER DEFAULT 1,
+  config TEXT,                      -- JSON: база API, имя env с токеном, формат и т.п.
+  updated_at TEXT
+);
+
+-- Офферы: одна строка = товар у конкретного поставщика (сырьё)
+CREATE TABLE IF NOT EXISTS offers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER NOT NULL,
+  ext_id TEXT NOT NULL,             -- SKU/id у поставщика
+  ext_category TEXT,                -- категория у поставщика (id или путь)
+  brand TEXT, mpn TEXT, mpn_norm TEXT, ean TEXT,
+  name TEXT,
+  price_buy REAL DEFAULT 0,         -- закуп
+  price_rrp REAL DEFAULT 0,         -- РРЦ поставщика (если есть)
+  stock INTEGER DEFAULT 0,          -- остаток у поставщика
+  currency TEXT DEFAULT 'KZT',
+  raw TEXT,                         -- JSON исходника
+  product_id INTEGER DEFAULT 0,     -- к какому товару привязан (после склейки)
+  seen_at TEXT,                     -- когда последний раз пришёл в выгрузке
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_off_uni   ON offers(supplier_id, ext_id);
+CREATE INDEX IF NOT EXISTS idx_off_match ON offers(brand, mpn_norm);
+CREATE INDEX IF NOT EXISTS idx_off_ean   ON offers(ean);
+CREATE INDEX IF NOT EXISTS idx_off_prod  ON offers(product_id);
+CREATE INDEX IF NOT EXISTS idx_off_sup   ON offers(supplier_id);
+
+-- Маппинг: категория поставщика → твоя категория (cat_id из categories)
+CREATE TABLE IF NOT EXISTS category_map(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  supplier_id INTEGER NOT NULL,
+  ext_category TEXT NOT NULL,
+  cat_id INTEGER DEFAULT 0,         -- твоя категория (0 = ещё не размечено)
+  auto INTEGER DEFAULT 0,           -- 1 = подсказано автоматически
+  confirmed INTEGER DEFAULT 0,      -- 1 = подтверждено вручную
+  updated_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cmap_uni ON category_map(supplier_id, ext_category);
+
+-- Правила наценки (приоритетнее markup поставщика)
+CREATE TABLE IF NOT EXISTS price_rules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT,                       -- category | brand | supplier | global
+  key TEXT,                         -- cat_id / бренд / supplier_id / ''
+  markup_pct REAL DEFAULT 40,
+  priority INTEGER DEFAULT 100,
+  active INTEGER DEFAULT 1
+);
+
+-- Очередь конфликтов склейки (ручная проверка)
+CREATE TABLE IF NOT EXISTS match_queue(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  offer_id INTEGER,
+  reason TEXT,                      -- conflict | ambiguous
+  candidates TEXT,                  -- JSON: id товаров-кандидатов
+  status TEXT DEFAULT 'open',       -- open | resolved
+  created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mq_status ON match_queue(status);
 `);
 
 // мягкая миграция: добити колонки, если базе уже была создана старой версией
@@ -104,5 +174,18 @@ try {
   db.exec('CREATE INDEX IF NOT EXISTS idx_cat_parentid ON categories(parent_id)');
   db.exec('CREATE INDEX IF NOT EXISTS idx_cat_grp ON categories(grp)');
 } catch (e) { console.error('[db] индексы categories:', e.message); }
+
+ensureColumn('import_log','supplier_id','supplier_id INTEGER DEFAULT 0'); // какой поставщик импортировался
+
+// Завести поставщиков по умолчанию (Этап 1): Al-Style (API, активен) и 1С (свой склад, пока выключен)
+try {
+  const now = new Date().toISOString();
+  const ins = db.prepare(`INSERT OR IGNORE INTO suppliers(code,name,kind,priority,markup_pct,active,config,updated_at)
+    VALUES(@code,@name,@kind,@priority,@markup_pct,@active,@config,@ts)`);
+  ins.run({ code:'alstyle', name:'Al-Style', kind:'api', priority:100, markup_pct:40, active:1,
+    config: JSON.stringify({ base:'https://api.al-style.kz/api', tokenEnv:'ALSTYLE_API_KEY', rateMs:5000 }), ts:now });
+  ins.run({ code:'1c', name:'Свой склад (1С)', kind:'1c', priority:0, markup_pct:40, active:0,
+    config: JSON.stringify({ format:'csv' }), ts:now });
+} catch (e) { console.error('[db] seed suppliers:', e.message); }
 
 module.exports=db;
