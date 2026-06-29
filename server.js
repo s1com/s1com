@@ -412,6 +412,67 @@ app.post('/api/categories-sync', importLimiter, (req, res) => {
   res.json({ ok: true, added, kept, removed });
 });
 
+// Приём офферов поставщика (новый слой offers). Изолировано от /api/import.
+app.post('/api/offers-sync', importLimiter, (req, res) => {
+  const h = req.headers.authorization || '';
+  const t = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (!safeEqual(t, IMPORT_TOKEN)) return res.status(401).json({ error: 'Неверный токен выгрузки' });
+
+  const offers = (req.body && req.body.offers) || [];
+  if (!Array.isArray(offers)) return res.status(400).json({ error: 'offers должен быть массивом' });
+
+  const now = new Date().toISOString();
+  const code = clamp((req.body && req.body.supplier) || 'alstyle', 40).trim() || 'alstyle';
+  const toNum = v => { const n = Number(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.').replace(/[^\d.]/g, '')); return Number.isFinite(n) ? n : 0; };
+  const mpnNorm = s => String(s || '').toUpperCase().replace(/[^0-9A-ZА-Я]/gi, '');
+
+  try {
+    db.prepare('INSERT OR IGNORE INTO suppliers(code,name,kind,priority,markup_pct,active,updated_at) VALUES(?,?,?,?,?,?,?)')
+      .run(code, code, 'api', 100, 40, 1, now);
+    const sup = db.prepare('SELECT id FROM suppliers WHERE code=?').get(code);
+    const supplier_id = sup && sup.id;
+    if (!supplier_id) return res.status(400).json({ error: 'Поставщик не найден' });
+
+    const findOffer = db.prepare('SELECT id FROM offers WHERE supplier_id=? AND ext_id=?');
+    const findProd = db.prepare('SELECT id FROM products WHERE sku=?');
+    const insO = db.prepare(`INSERT INTO offers(supplier_id,ext_id,ext_category,brand,mpn,mpn_norm,ean,name,price_buy,price_rrp,stock,currency,product_id,seen_at,updated_at)
+      VALUES(@supplier_id,@ext_id,@ext_category,@brand,@mpn,@mpn_norm,@ean,@name,@price_buy,@price_rrp,@stock,'KZT',@product_id,@now,@now)`);
+    const updO = db.prepare(`UPDATE offers SET ext_category=@ext_category,brand=@brand,mpn=@mpn,mpn_norm=@mpn_norm,ean=@ean,name=@name,
+      price_buy=@price_buy,price_rrp=@price_rrp,stock=@stock,product_id=@product_id,seen_at=@now,updated_at=@now WHERE id=@id`);
+
+    let upserted = 0, linked = 0;
+    const tx = db.transaction(() => {
+      for (const o of offers) {
+        const ext_id = clamp(String((o && o.ext_id) || ''), 100).trim();
+        if (!ext_id) continue;
+        const prod = findProd.get(ext_id);
+        const product_id = prod ? prod.id : 0; if (product_id) linked++;
+        const rec = {
+          supplier_id, ext_id,
+          ext_category: clamp(String(o.ext_category || ''), 100),
+          brand: clamp(String(o.brand || ''), 100).trim(),
+          mpn: clamp(String(o.mpn || ext_id), 100).trim(),
+          mpn_norm: mpnNorm(o.mpn || ext_id),
+          ean: clamp(String(o.ean || ''), 40).trim(),
+          name: clamp(String(o.name || ''), 300),
+          price_buy: toNum(o.price_buy),
+          price_rrp: toNum(o.price_rrp) || toNum(o.price_retail),
+          stock: Math.max(0, Math.round(toNum(o.stock))),
+          product_id, now
+        };
+        const ex = findOffer.get(supplier_id, ext_id);
+        if (ex) updO.run(Object.assign(rec, { id: ex.id })); else insO.run(rec);
+        upserted++;
+      }
+    });
+    tx();
+    res.json({ ok: true, upserted, linked, supplier: code });
+  } catch (e) {
+    console.error('[offers-sync] ошибка:', e.message);
+    return res.status(500).json({ error: 'Ошибка приёма офферов' });
+  }
+});
+
 // ---------- АДМИНКА: авторизация ----------
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   if (!verifyPassword((req.body || {}).password || '', ADMIN_HASH)) {
