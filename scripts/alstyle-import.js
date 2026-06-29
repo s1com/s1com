@@ -58,7 +58,7 @@ const CFG = {
   PRICE_MODE: process.env.PRICE_MODE || 'alstyle', // 'alstyle' = РРЦ из Al-Style (rrp→price2); 'markup' = наценка от закупа
   FULL_SYNC: String(process.env.FULL_SYNC || 'false') === 'true',
   PAGE: 250, BATCH: 2000, CAT_CHUNK: 80, TIMEOUT: 45000,
-  ADDITIONAL: 'brand,images,description,rrp',
+  ADDITIONAL: 'brand,images,description,rrp,price1,price2',
   THROTTLE_MS: Number(process.env.THROTTLE_MS || 5500), // Al-Style: не чаще 1 запроса/5с
 };
 
@@ -173,18 +173,22 @@ function retailPrice(price1, rrp) {
   if (CFG.RESPECT_RRP) { const rr = Number(rrp) || 0; if (rr > r) r = Math.ceil(rr / CFG.ROUND_TO) * CFG.ROUND_TO; }
   return r;
 }
-// Цена для каталога. По умолчанию — РРЦ из Al-Style: rrp («контроль розничной цены»),
-// иначе price2 («розничная»). Если у Al-Style нет розничной — запасной расчёт по наценке.
+// Надёжный разбор числа (на случай строк с пробелами/валютой: "12 500 ₸" → 12500)
+function num(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const n = Number(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.').replace(/[^\d.]/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+// Цена для каталога. По умолчанию — розничная цена «с сайта» Al-Style.
+// ВАЖНО: у Al-Style цена ≤ 1 = «нет цены»/заглушка (часто rrp приходит как 1) — её НЕ показываем как 1 ₸.
 function catalogPrice(el) {
+  const rrp = num(el.rrp), p2 = num(el.price2), p1 = num(el.price1);
   if (CFG.PRICE_MODE === 'markup') {
-    if ((Number(el.price1) || 0) <= 1) return 0;
-    return retailPrice(el.price1, el.rrp);
+    return p1 > 1 ? retailPrice(p1, rrp) : 0;
   }
-  // РРЦ из Al-Style: rrp («контроль розн. цены») → price2 («розничная»).
-  // «Цена по запросу» только если у Al-Style нет розничной цены.
-  const rrp = Number(el.rrp) || 0, p2 = Number(el.price2) || 0;
-  const p = rrp > 0 ? rrp : p2;
-  return p > 0 ? Math.round(p) : 0;
+  // розничная: сначала price2 («розничная»), затем rrp («РРЦ»), но только если значение осмысленное (> 1)
+  let r = p2 > 1 ? p2 : (rrp > 1 ? rrp : 0);
+  return r > 0 ? Math.round(r) : 0;
 }
 function pickImage(el) {
   let imgs = el.images;
@@ -257,6 +261,10 @@ function transform(el, leafGroup, leafName, pathOf) {
     cat_path,
     desc,
     res: '', price: catalogPrice(el), stock: parseQty(el.quantity), img: imgs[0] || '', images: imgs,
+    // --- сырьё для оффера (на сайте в products игнорируется, идёт в /api/offers-sync) ---
+    _buy: num(el.price1), _retail: num(el.price2), _rrp: num(el.rrp),
+    _ean: String(el.barcode || el.ean || el.gtin || '').trim(),
+    _pn: String(el.article_pn || '').trim(),
   }, enrich(group, cat));
 }
 
@@ -310,6 +318,26 @@ async function pushBatch(products) {
   const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
   const url = CFG.SITE_URL.replace(/\/$/, '') + '/api/import';
   try { return await httpPost(url, headers, body); } catch (e) { await new Promise(r => setTimeout(r, 2000)); return httpPost(url, headers, body); }
+}
+
+// Отправка офферов поставщика в новый слой (offers). Изолировано от /api/import.
+async function pushOffers(products) {
+  const offers = products.map(p => ({
+    ext_id: String(p.sku), ext_category: String(p.cat_id || ''),
+    brand: p.brand || '', mpn: p._pn || String(p.sku), ean: p._ean || '',
+    name: p.model || '', price_buy: p._buy || 0, price_rrp: p._rrp || 0, price_retail: p._retail || 0,
+    stock: p.stock || 0,
+  }));
+  let upserted = 0;
+  for (let i = 0; i < offers.length; i += CFG.BATCH) {
+    const body = JSON.stringify({ supplier: 'alstyle', offers: offers.slice(i, i + CFG.BATCH) });
+    const headers = { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), Authorization: 'Bearer ' + CFG.IMPORT_TOKEN };
+    const url = CFG.SITE_URL.replace(/\/$/, '') + '/api/offers-sync';
+    const r = await httpPost(url, headers, body);
+    upserted += (r && r.upserted) || 0;
+  }
+  console.log(`Офферы Al-Style синхронизированы: ${upserted}.`);
+  return upserted;
 }
 
 // Дерево категорий (узлы по ID Al-Style, что встречаются в путях товаров) → сайт (полная замена)
@@ -382,5 +410,6 @@ async function syncCategories(products, catMeta) {
     }
     console.log(`Готово. Создано ${created}, обновлено ${updated}, снято с показа ${deactivated}, пропущено ${skipped}.`);
     try { await syncCategories(products, catMeta); } catch (e) { console.error('Категории не обновились:', e.message); }
+    try { await pushOffers(products); } catch (e) { console.error('Офферы не синхронизировались (не критично):', e.message); }
   } catch (e) { console.error('ОШИБКА:', e.message); process.exit(1); }
 })();
