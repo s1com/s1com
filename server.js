@@ -712,16 +712,42 @@ app.get('/api/admin/orders', auth, (req, res) => {
   res.json({ orders: rows, counts });
 });
 app.put('/api/admin/orders/:id', auth, (req, res) => {
-  const { status, note } = req.body || {};
-  const st = status === 'new' || status === 'done' ? status : null;
-  // done_at: ставим при переходе в «обработана», снимаем при возврате в «новая»
-  const doneAt = st === 'done' ? new Date().toISOString() : (st === 'new' ? null : undefined);
-  const r = db.prepare(`UPDATE orders SET status=COALESCE(?,status), note=COALESCE(?,note)${doneAt !== undefined ? ', done_at=?' : ''} WHERE id=?`)
-    .run(...(doneAt !== undefined
-      ? [st, note != null ? clamp(note, 1000) : null, doneAt, Number(req.params.id)]
-      : [st, note != null ? clamp(note, 1000) : null, Number(req.params.id)]));
+  const b = req.body || {};
+  const allowed = ['new', 'in_work', 'order', 'rejected', 'done'];
+  const st = allowed.includes(b.status) ? b.status : null;
+  const closed = (st === 'order' || st === 'rejected' || st === 'done');
+  const reopened = (st === 'new' || st === 'in_work');
+  const doneAt = closed ? new Date().toISOString() : (reopened ? null : undefined);
+  const amount = b.amount != null ? Math.max(0, Math.round(Number(b.amount) || 0)) : undefined;
+  const sets = ['status=COALESCE(?,status)', 'note=COALESCE(?,note)'];
+  const args = [st, b.note != null ? clamp(b.note, 1000) : null];
+  if (doneAt !== undefined) { sets.push('done_at=?'); args.push(doneAt); }
+  if (amount !== undefined) { sets.push('amount=?'); args.push(amount); }
+  args.push(Number(req.params.id));
+  const r = db.prepare(`UPDATE orders SET ${sets.join(',')} WHERE id=?`).run(...args);
   if (!r.changes) return res.status(404).json({ error: 'Заявка не найдена' });
   res.json({ ok: true });
+});
+
+// Статистика продаж/конверсии за период (days=0 → всё время). Конверсия — по закрытым.
+app.get('/api/admin/sales-stats', auth, (req, res) => {
+  const days = Math.max(0, parseInt(req.query.days, 10) || 0);
+  const since = days ? new Date(Date.now() - days * 864e5).toISOString() : '1970-01-01';
+  try {
+    const row = db.prepare(`SELECT
+      COUNT(*) received,
+      SUM(CASE WHEN status IN ('order','done') THEN 1 ELSE 0 END) won,
+      SUM(CASE WHEN status='rejected' THEN 1 ELSE 0 END) lost,
+      SUM(CASE WHEN status IN ('new','in_work') THEN 1 ELSE 0 END) opn,
+      SUM(CASE WHEN status IN ('order','done') THEN amount ELSE 0 END) sales
+      FROM orders WHERE ts>=?`).get(since) || {};
+    const won = row.won || 0, lost = row.lost || 0, closed = won + lost;
+    res.json({
+      days, received: row.received || 0, won, lost, opn: row.opn || 0, closed,
+      conversion: closed ? Math.round(won / closed * 100) : 0,
+      sales: row.sales || 0, avgCheck: won ? Math.round((row.sales || 0) / won) : 0
+    });
+  } catch (e) { console.error('[sales-stats]', e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
 app.delete('/api/admin/orders/:id', auth, (req, res) => {
   db.prepare('DELETE FROM orders WHERE id=?').run(Number(req.params.id));

@@ -256,6 +256,7 @@ async function showDash(){
     '<div style="font-size:13px;color:#888;margin-bottom:8px">Заявки</div>'+
     '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">'+ordersKpi+'</div>'+
     pipe+
+    '<div id="salesBlock"></div>'+
     '<div style="font-size:13px;color:#888;margin-bottom:8px">Каталог</div>'+
     '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">'+catKpi+'</div>'+
     syncHtml+
@@ -266,6 +267,24 @@ async function showDash(){
       '<div style="flex:1;min-width:200px"><b style="font-size:14px">Запрашиваемые категории</b>'+dlist(s.topCats)+'</div>'+
       '<div style="flex:1;min-width:200px"><b style="font-size:14px">Товары по направлениям</b>'+s.byGroup.map(gr=>'<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f3f3;font-size:13.5px"><span>'+esc(gr.grp||'(без категории)')+'</span><b>'+gr.c+'</b></div>').join('')+'</div>'+
     '</div>';
+  loadSales(30);
+}
+async function loadSales(days){
+  const el=document.getElementById('salesBlock'); if(!el) return;
+  const periods=[[0,'Всё'],[30,'30 дней'],[7,'7 дней'],[1,'Сегодня']];
+  let d; try{ d=await (await fetch('/api/admin/sales-stats?days='+days,{headers:H()})).json(); }catch(e){ el.innerHTML=''; return; }
+  const money=n=>(Math.round(n||0)).toLocaleString('ru-RU')+' ₸';
+  const tabs=periods.map(p=>'<button onclick="loadSales('+p[0]+')" style="padding:5px 11px;font-size:12px;border-radius:8px;'+(p[0]===days?'background:#0d7a6f;color:#fff':'background:#eee;color:#444')+'">'+p[1]+'</button>').join(' ');
+  const card=(label,val,color,sub)=>'<div style="flex:1;min-width:130px;background:#fff;border:1px solid #eee;border-radius:12px;padding:14px"><div style="font-size:23px;font-weight:800;color:'+(color||'#222')+'">'+val+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+label+'</div>'+(sub?'<div style="font-size:11px;color:#aaa;margin-top:3px">'+sub+'</div>':'')+'</div>';
+  el.innerHTML='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:4px 0 8px"><div style="font-size:13px;color:#888">Сделки и конверсия</div><div style="display:flex;gap:5px;flex-wrap:wrap">'+tabs+'</div></div>'+
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">'+
+      card('Получено заявок',d.received,'#1a7fd4',d.opn+' в работе')+
+      card('Заказы',d.won,'#1a9e4b')+
+      card('Отказы',d.lost,'#E02128')+
+      card('Конверсия',d.conversion+'%','#0d7a6f','по закрытым ('+d.closed+')')+
+      card('Сумма продаж',money(d.sales),'#13795f','ср. чек '+money(d.avgCheck))+
+    '</div>'+
+    '<div style="font-size:11.5px;color:#aaa;margin-bottom:16px">Конверсия = Заказы ÷ (Заказы + Отказы). Сумма продаж — по заявкам со статусом «Заказ» за период.</div>';
 }
 function exportOrders(){
   // скачивание файла с авторизацией
@@ -374,15 +393,20 @@ async function showOrders(){
     box.innerHTML='<h3>📋 Заявки с сайта ('+d.counts.new+' новых из '+d.counts.total+') <button onclick="showOrders()" style="background:#eee;color:#333;padding:6px 12px;font-size:13px;margin-left:6px">↻ Обновить</button> <button onclick="exportOrders()" style="background:#0a8a5f;color:#fff;padding:6px 12px;font-size:13px;margin-left:4px">⬇ Экспорт в Excel</button> <button onclick="document.getElementById(\'ordBox\').classList.add(\'hide\')" style="background:#fff;border:1px solid #ccc;color:#666;padding:6px 12px;font-size:13px;margin-left:4px">✕ Закрыть</button></h3>'+
       (d.orders.length?d.orders.map(o=>{
         const items=(o.items||[]).map(i=>esc((i.brand?i.brand+' ':'')+i.model)+' — <b>'+i.qty+' шт</b>').join('<br>');
-        const isNew=o.status==='new';
-        return '<div style="border:1px solid #eee;border-radius:8px;padding:12px;margin-bottom:10px;background:'+(isNew?'#f0f8ff':'#fafafa')+'">'+
+        const ST={'new':['● Новая','#1a7fd4','#f0f8ff'],'in_work':['⏳ В работе','#d98800','#fff8ef'],'order':['🟢 Заказ','#1a9e4b','#f1fbf5'],'done':['🟢 Заказ','#1a9e4b','#f3fbf6'],'rejected':['🔴 Отказ','#E02128','#fff2f2']};
+        const cur=o.status||'new'; const sm=ST[cur]||ST['new']; const amount=o.amount||0; const isNew=cur==='new';
+        return '<div style="border:1px solid #eee;border-radius:8px;padding:12px;margin-bottom:10px;background:'+sm[2]+'">'+
           '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'+
           '<b>Заявка #'+o.id+' · '+fmtd(o.ts)+'</b>'+
-          '<span>'+(isNew?'<span style="color:#1a7fd4;font-weight:700">● НОВАЯ</span>':'<span style="color:#888">✓ обработана</span>')+'</span></div>'+
+          '<span style="color:'+sm[1]+';font-weight:700">'+sm[0]+'</span></div>'+
           (o.contact?'<div style="font-size:12px;color:#666;margin-top:4px">Контакт: '+esc(o.contact)+'</div>':'')+
           '<div style="margin-top:8px;font-size:13px">'+items+'</div>'+
           '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'+
-          (isNew?'<button onclick="setOrder('+o.id+',\'done\')" style="background:#1a9e4b;color:#fff;padding:6px 12px;font-size:12px">Отметить обработанной</button>':'<button onclick="setOrder('+o.id+',\'new\')" style="background:#999;color:#fff;padding:6px 12px;font-size:12px">Вернуть в новые</button>')+
+          '<span style="font-size:12px;color:#666">Сумма:</span><input type="number" id="oa-'+o.id+'" value="'+amount+'" placeholder="₸" style="width:105px;padding:5px;border:1px solid #ddd;border-radius:6px;font-size:12px">'+
+          '<button onclick="setOrder('+o.id+',\'new\')" style="background:#eef;color:#1a3a6b;padding:6px 10px;font-size:12px">Новая</button>'+
+          '<button onclick="setOrder('+o.id+',\'in_work\')" style="background:#fff3e0;color:#9a5b00;padding:6px 10px;font-size:12px">В работе</button>'+
+          '<button onclick="setOrder('+o.id+',\'order\')" style="background:#1a9e4b;color:#fff;padding:6px 10px;font-size:12px">🟢 Заказ</button>'+
+          '<button onclick="setOrder('+o.id+',\'rejected\')" style="background:#E02128;color:#fff;padding:6px 10px;font-size:12px">🔴 Отказ</button>'+
           '<button onclick="delOrder('+o.id+')" style="background:#fff;border:1px solid #E02128;color:#E02128;padding:6px 12px;font-size:12px">Удалить</button></div>'+
           '</div>';
       }).join(''):'<p style="color:#888;padding:10px">Заявок пока нет. Они появятся, когда клиент отправит корзину с сайта.</p>');
@@ -390,7 +414,7 @@ async function showOrders(){
     box.innerHTML='<p style="color:#E02128;padding:10px">Не удалось загрузить заявки: '+esc(e.message)+'.<br>Обновите страницу (Cmd+Shift+R) и попробуйте снова.</p>';
   }
 }
-async function setOrder(id,status){await fetch('/api/admin/orders/'+id,{method:'PUT',headers:H(),body:JSON.stringify({status})});showOrders();loadOrdersBadge();}
+async function setOrder(id,status){const el=document.getElementById('oa-'+id);const body={status};if(el)body.amount=+el.value||0;await fetch('/api/admin/orders/'+id,{method:'PUT',headers:H(),body:JSON.stringify(body)});showOrders();loadOrdersBadge();}
 async function delOrder(id){if(!confirm('Удалить заявку?'))return;await fetch('/api/admin/orders/'+id,{method:'DELETE',headers:H()});showOrders();loadOrdersBadge();}
 
 async function showLog(){

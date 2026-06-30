@@ -162,6 +162,7 @@ ensureColumn('import_log','skipped','skipped INTEGER DEFAULT 0');
 ensureColumn('orders','cust_name','cust_name TEXT');
 ensureColumn('orders','cust_phone','cust_phone TEXT');
 ensureColumn('orders','done_at','done_at TEXT');
+ensureColumn('orders','amount','amount REAL DEFAULT 0'); // сумма продажи (ставится при статусе «Заказ»)
 
 // Миграция categories на дерево по ID Al-Style: если таблица старого вида (без cat_id) —
 // пересоздаём (категории всё равно восстанавливаются при следующем импорте).
