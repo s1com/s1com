@@ -50,6 +50,8 @@ td textarea{resize:vertical;min-height:32px}
     <button class="b2" onclick="showOrders()" style="background:#1a7fd4">📋 Заявки <span id="ordBadge" style="background:#fff;color:#1a7fd4;border-radius:10px;padding:0 6px;font-size:11px;display:none"></span></button>
     <button class="b3" onclick="showCats()" style="background:#6d3a9e">🗂 Категории</button>
     <button class="b3" onclick="showSettings()" style="background:#444">⚙ Настройки</button>
+    <button class="b3" onclick="showSuppliers()" style="background:#5a4a8a">🏭 Поставщики</button>
+    <button class="b3" onclick="showFaq()" style="background:#0d7a6f">❓ FAQ</button>
     <button class="b4" onclick="showLog()">📥 Журнал выгрузок 1С</button>
     <button class="b3" onclick="logout()">Выйти</button>
   </div>
@@ -79,6 +81,8 @@ td textarea{resize:vertical;min-height:32px}
   <div class="log hide" id="catBox"></div>
   <div class="log hide" id="dashBox"></div>
   <div class="log hide" id="settingsBox"></div>
+  <div class="log hide" id="supBox"></div>
+  <div class="log hide" id="faqBox"></div>
 </div>
 </div>
 
@@ -86,6 +90,7 @@ td textarea{resize:vertical;min-height:32px}
 let TOKEN=sessionStorage.getItem('admtoken')||'';
 let DATA=[],DIRTY=new Set();
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmt(n){return Number(n||0).toLocaleString('ru-RU');}
   let GROUPS=["Видеонаблюдение","Сетевое оборудование","Пожарная безопасность","СКУД и домофония"];
 const H=()=>({'Content-Type':'application/json','Authorization':'Bearer '+TOKEN});
 
@@ -191,7 +196,7 @@ async function loadOrdersBadge(){
 
 
 async function showDash(){
-  ['logBox','ordBox','catBox','settingsBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['logBox','ordBox','catBox','settingsBox','supBox','faqBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
   const box=document.getElementById('dashBox');box.classList.toggle('hide');if(box.classList.contains('hide'))return;
   box.innerHTML='<p style="color:#888">Загрузка статистики…</p>';
   const s=await (await fetch('/api/admin/stats',{headers:H()})).json();
@@ -270,7 +275,7 @@ function exportOrders(){
 }
 
 async function showSettings(){
-  const box=document.getElementById('settingsBox');['logBox','ordBox','catBox','dashBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  const box=document.getElementById('settingsBox');['logBox','ordBox','catBox','dashBox','supBox','faqBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
   box.classList.toggle('hide'); if(box.classList.contains('hide'))return;
   let s={}; try{ const r=await fetch('/api/admin/settings',{headers:H()}); s=await r.json(); }catch(e){}
   const inp='width:100%;padding:10px;border:1.5px solid #ddd;border-radius:8px;margin-top:4px';
@@ -312,7 +317,7 @@ async function saveSettings(){
   }catch(e){ alert('Ошибка сети: '+e.message); }
 }
 async function showCats(){
-  const box=document.getElementById('catBox');['logBox','ordBox','dashBox','settingsBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  const box=document.getElementById('catBox');['logBox','ordBox','dashBox','settingsBox','supBox','faqBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
   box.classList.toggle('hide'); if(box.classList.contains('hide'))return;
   await renderCats();
 }
@@ -357,7 +362,7 @@ async function catDel(id,name){
 
 async function showOrders(){
   const box=document.getElementById('ordBox');const log=document.getElementById('logBox');if(log)log.classList.add('hide');
-  ['catBox','dashBox','settingsBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
+  ['catBox','dashBox','settingsBox','supBox','faqBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
   box.classList.remove('hide');
   box.scrollIntoView({behavior:'smooth',block:'start'});
   box.innerHTML='<p style="color:#888;padding:10px">Загрузка заявок…</p>';
@@ -389,7 +394,7 @@ async function setOrder(id,status){await fetch('/api/admin/orders/'+id,{method:'
 async function delOrder(id){if(!confirm('Удалить заявку?'))return;await fetch('/api/admin/orders/'+id,{method:'DELETE',headers:H()});showOrders();loadOrdersBadge();}
 
 async function showLog(){
-  ['ordBox','catBox','dashBox','settingsBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
+  ['ordBox','catBox','dashBox','settingsBox','supBox','faqBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
   const box=document.getElementById('logBox');box.classList.toggle('hide');
   if(box.classList.contains('hide'))return;
   const r=await fetch('/api/admin/import-log',{headers:H()});const rows=await r.json();
@@ -397,5 +402,83 @@ async function showLog(){
     '<table><tr><th>Дата</th><th>Источник</th><th>Получено</th><th>Создано</th><th>Обновлено</th></tr>'+
     rows.map(l=>`<tr><td>${new Date(l.ts).toLocaleString('ru-RU')}</td><td>${l.source}</td><td>${l.received}</td><td>${l.created}</td><td>${l.updated}</td></tr>`).join('')+'</table>'
     :'<p style="color:#888">Выгрузок ещё не было. 1С отправляет данные на POST /api/import.</p>');
+}
+
+function fmtRow(){}
+async function showSuppliers(){
+  ['logBox','ordBox','catBox','dashBox','settingsBox','faqBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
+  const box=document.getElementById('supBox');box.classList.toggle('hide');
+  if(box.classList.contains('hide'))return;
+  box.innerHTML='<h3>🏭 Поставщики</h3><p style="color:#888">Загрузка…</p>';
+  const d=await (await fetch('/api/admin/suppliers',{headers:H()})).json();
+  const S=d.suppliers||[],ST=d.stats||{},SM=d.sample||[];
+  const rows=S.map(s=>{const st=ST[s.id]||{};return `<tr>
+    <td><b>${esc(s.name)}</b><br><span style="color:#999">${esc(s.code)} · ${esc(s.kind)}</span></td>
+    <td><input type="number" value="${s.priority}" id="sp-pr-${s.id}" style="width:56px"></td>
+    <td><input type="number" value="${s.markup_pct}" id="sp-mk-${s.id}" style="width:54px"> %</td>
+    <td style="text-align:center"><input type="checkbox" ${s.active?'checked':''} id="sp-ac-${s.id}"></td>
+    <td>${st.offers||0}</td>
+    <td>${st.buys?st.buys:'<span style="color:#c00">0</span>'}</td>
+    <td>${st.linked||0}</td>
+    <td>${st.instock||0}</td>
+    <td>${st.minbuy?fmt(st.minbuy)+'–'+fmt(st.maxbuy)+' ₸':'—'}</td>
+    <td><button class="b2" onclick="saveSupplier(${s.id})">OK</button></td></tr>`;}).join('');
+  const sample=SM.map(o=>`<tr><td>${esc(o.ext_id)}</td><td>${esc(o.brand||'')}</td><td>${esc(o.mpn||'')}</td><td>${o.price_buy?fmt(o.price_buy):'<span style="color:#c00">0</span>'}</td><td>${o.price_rrp?fmt(o.price_rrp):'—'}</td><td>${o.stock}</td><td>${o.product_id?'✓':'—'}</td></tr>`).join('');
+  box.innerHTML=`<h3>🏭 Поставщики</h3>
+    <table><tr><th>Поставщик</th><th>Приор.</th><th>Наценка</th><th>Вкл</th><th>Офферов</th><th>С закупом</th><th>Привязано</th><th>В наличии</th><th>Закуп min–max</th><th></th></tr>${rows}</table>
+    <p style="color:#888;margin-top:8px;font-size:12px">Приоритет: меньше = выгоднее (1С обычно 0). «С закупом» — у скольких офферов есть цена закупа (price_buy &gt; 1). Если 0 — поставщик не отдаёт закуп в API, оптовую цену будем считать иначе.</p>
+    <h3 style="margin-top:18px">Пример офферов (последние 12)</h3>
+    <table><tr><th>Арт.</th><th>Бренд</th><th>Партномер</th><th>Закуп</th><th>РРЦ</th><th>Ост.</th><th>Товар</th></tr>${sample}</table>`;
+}
+async function saveSupplier(id){
+  const body={priority:+document.getElementById('sp-pr-'+id).value,markup_pct:+document.getElementById('sp-mk-'+id).value,active:document.getElementById('sp-ac-'+id).checked};
+  const r=await fetch('/api/admin/suppliers/'+id,{method:'PUT',headers:H(),body:JSON.stringify(body)});
+  alert(r.ok?'Сохранено':'Ошибка сохранения');
+}
+
+const FAQ_PAGES={home:'Главная',video:'Видеонаблюдение',setevoe:'Сетевое',skud:'СКУД',pozharnaya:'Пожарная'};
+let FAQDATA=[];
+async function showFaq(){
+  ['logBox','ordBox','catBox','dashBox','settingsBox','supBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
+  const box=document.getElementById('faqBox');box.classList.toggle('hide');
+  if(box.classList.contains('hide'))return;
+  await loadFaq();
+}
+async function loadFaq(){
+  const box=document.getElementById('faqBox');
+  FAQDATA=await (await fetch('/api/admin/faq',{headers:H()})).json();
+  const byPage={}; FAQDATA.forEach(f=>{(byPage[f.page]=byPage[f.page]||[]).push(f);});
+  let html='<h3>❓ FAQ — вопросы-ответы по страницам сайта</h3>';
+  html+='<div class="tools"><div class="tool"><label>Добавить на страницу</label><select id="faqNewPage">'+Object.keys(FAQ_PAGES).map(p=>`<option value="${p}">${FAQ_PAGES[p]}</option>`).join('')+'</select></div><button class="b1" onclick="addFaq()">+ Вопрос</button></div>';
+  Object.keys(FAQ_PAGES).forEach(p=>{
+    const items=byPage[p]||[];
+    html+=`<h4 style="margin:16px 0 6px">${FAQ_PAGES[p]} <span style="color:#999;font-weight:400">(${items.length})</span></h4>`;
+    if(!items.length){html+='<p style="color:#999;font-size:12px">Нет вопросов</p>';return;}
+    html+='<table><tr><th style="width:30%">Вопрос</th><th>Ответ</th><th style="width:60px">Порядок</th><th style="width:45px">Вкл</th><th style="width:95px"></th></tr>';
+    html+=items.map(f=>`<tr>
+      <td><textarea id="fq-q-${f.id}">${esc(f.q)}</textarea></td>
+      <td><textarea id="fq-a-${f.id}">${esc(f.a)}</textarea></td>
+      <td><input type="number" id="fq-s-${f.id}" value="${f.sort_order}" style="width:50px"></td>
+      <td style="text-align:center"><input type="checkbox" id="fq-v-${f.id}" ${f.visible?'checked':''}></td>
+      <td><button class="b2" onclick="saveFaq(${f.id})">OK</button> <button onclick="delFaq(${f.id})" style="background:#fff;border:1px solid #E02128;color:#E02128">✕</button></td>
+    </tr>`).join('');
+    html+='</table>';
+  });
+  box.innerHTML=html;
+}
+async function addFaq(){
+  const page=document.getElementById('faqNewPage').value;
+  const r=await fetch('/api/admin/faq',{method:'POST',headers:H(),body:JSON.stringify({page,q:'Новый вопрос',a:'Ответ',sort_order:99,visible:true})});
+  if(r.ok)loadFaq();else alert('Ошибка');
+}
+async function saveFaq(id){
+  const body={q:document.getElementById('fq-q-'+id).value,a:document.getElementById('fq-a-'+id).value,sort_order:+document.getElementById('fq-s-'+id).value,visible:document.getElementById('fq-v-'+id).checked};
+  const r=await fetch('/api/admin/faq/'+id,{method:'PUT',headers:H(),body:JSON.stringify(body)});
+  alert(r.ok?'Сохранено':'Ошибка сохранения');
+}
+async function delFaq(id){
+  if(!confirm('Удалить вопрос?'))return;
+  const r=await fetch('/api/admin/faq/'+id,{method:'DELETE',headers:H()});
+  if(r.ok)loadFaq();
 }
 </script></body></html>

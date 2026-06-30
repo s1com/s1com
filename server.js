@@ -473,6 +473,65 @@ app.post('/api/offers-sync', importLimiter, (req, res) => {
   }
 });
 
+// --- Поставщики (админка): список + сводка по офферам ---
+app.get('/api/admin/suppliers', auth, (req, res) => {
+  try {
+    const sup = db.prepare('SELECT id,code,name,kind,priority,markup_pct,active FROM suppliers ORDER BY priority,id').all();
+    const stats = {};
+    const sQ = db.prepare('SELECT COUNT(*) c, SUM(CASE WHEN price_buy>1 THEN 1 ELSE 0 END) buys, SUM(CASE WHEN product_id>0 THEN 1 ELSE 0 END) linked, SUM(CASE WHEN stock>0 THEN 1 ELSE 0 END) instock FROM offers WHERE supplier_id=?');
+    const pQ = db.prepare('SELECT MIN(price_buy) mn, MAX(price_buy) mx FROM offers WHERE supplier_id=? AND price_buy>1');
+    for (const s of sup) {
+      const r = sQ.get(s.id) || {}; const p = pQ.get(s.id) || {};
+      stats[s.id] = { offers: r.c || 0, buys: r.buys || 0, linked: r.linked || 0, instock: r.instock || 0, minbuy: p.mn || 0, maxbuy: p.mx || 0 };
+    }
+    const sample = db.prepare('SELECT supplier_id,ext_id,brand,mpn,price_buy,price_rrp,stock,product_id FROM offers ORDER BY id DESC LIMIT 12').all();
+    res.json({ suppliers: sup, stats, sample });
+  } catch (e) { console.error('[suppliers]', e.message); res.status(500).json({ error: 'Ошибка' }); }
+});
+app.put('/api/admin/suppliers/:id', auth, (req, res) => {
+  const id = parseInt(req.params.id, 10); if (!id) return res.status(400).json({ error: 'id' });
+  const cur = db.prepare('SELECT * FROM suppliers WHERE id=?').get(id); if (!cur) return res.status(404).json({ error: 'нет поставщика' });
+  const b = req.body || {};
+  const priority = b.priority != null ? (parseInt(b.priority, 10) || 0) : cur.priority;
+  const markup = b.markup_pct != null ? (Number(b.markup_pct) || 0) : cur.markup_pct;
+  const active = b.active != null ? (b.active ? 1 : 0) : cur.active;
+  db.prepare('UPDATE suppliers SET priority=?,markup_pct=?,active=?,updated_at=? WHERE id=?').run(priority, markup, active, new Date().toISOString(), id);
+  res.json({ ok: true });
+});
+
+// --- FAQ ---
+app.get('/api/faq', (req, res) => {
+  const page = clamp(String(req.query.page || 'home'), 40);
+  try { res.json(db.prepare('SELECT q,a FROM faq WHERE page=? AND visible=1 ORDER BY sort_order,id').all(page)); }
+  catch (e) { res.json([]); }
+});
+app.get('/api/admin/faq', auth, (req, res) => {
+  try { res.json(db.prepare('SELECT id,page,q,a,sort_order,visible FROM faq ORDER BY page,sort_order,id').all()); }
+  catch (e) { res.status(500).json({ error: 'Ошибка' }); }
+});
+app.post('/api/admin/faq', auth, (req, res) => {
+  const b = req.body || {}; const now = new Date().toISOString();
+  const info = db.prepare('INSERT INTO faq(page,q,a,sort_order,visible,updated_at) VALUES(?,?,?,?,?,?)')
+    .run(clamp(b.page || 'home', 40), clamp(b.q || '', 500), clamp(b.a || '', 4000), parseInt(b.sort_order, 10) || 0, b.visible === false ? 0 : 1, now);
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+app.put('/api/admin/faq/:id', auth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const cur = db.prepare('SELECT * FROM faq WHERE id=?').get(id); if (!cur) return res.status(404).json({ error: 'нет записи' });
+  const b = req.body || {};
+  db.prepare('UPDATE faq SET page=?,q=?,a=?,sort_order=?,visible=?,updated_at=? WHERE id=?').run(
+    b.page != null ? clamp(b.page, 40) : cur.page,
+    b.q != null ? clamp(b.q, 500) : cur.q,
+    b.a != null ? clamp(b.a, 4000) : cur.a,
+    b.sort_order != null ? (parseInt(b.sort_order, 10) || 0) : cur.sort_order,
+    b.visible != null ? (b.visible ? 1 : 0) : cur.visible,
+    new Date().toISOString(), id);
+  res.json({ ok: true });
+});
+app.delete('/api/admin/faq/:id', auth, (req, res) => {
+  db.prepare('DELETE FROM faq WHERE id=?').run(parseInt(req.params.id, 10)); res.json({ ok: true });
+});
+
 // ---------- АДМИНКА: авторизация ----------
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   if (!verifyPassword((req.body || {}).password || '', ADMIN_HASH)) {
