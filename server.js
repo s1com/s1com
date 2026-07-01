@@ -121,6 +121,9 @@ const importLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 120, message: {
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 300 }); // общий мягкий лимит
 app.use('/api/', apiLimiter);
 
+// SEO: единый адрес главной — /index.html и /index.htm → / (убираем дубль страницы)
+app.get(['/index.html', '/index.htm'], (req, res) => res.redirect(301, '/'));
+
 // --- helpers ---
 // Полное представление (для админки) — со складом
 function rowToAdmin(r) {
@@ -249,30 +252,38 @@ app.get('/api/categories', (req, res) => {
 // Сохраняет заявку в базу. Клиент отправляет {items:[{sku,qty}], contact?}
 const orderLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: 'Слишком много заявок, подождите минуту.' } });
 app.post('/api/order', orderLimiter, (req, res) => {
-  const { items, contact, name, phone } = req.body || {};
+  const b = req.body || {};
+  // honeypot: скрытые поля заполняют боты — тихо «принимаем», но не сохраняем
+  if (b.hp || b.website || b.email) return res.json({ ok: true });
+  const { items, contact, name, phone } = b;
   if (!Array.isArray(items) || !items.length) return res.status(400).json({ error: 'Пустая заявка' });
   if (items.length > 200) return res.status(413).json({ error: 'Слишком много позиций' });
-  // собираем состав по реальным товарам из базы (не доверяем присланным названиям/ценам)
-  const get = db.prepare('SELECT sku,brand,model FROM products WHERE id=? OR sku=?');
-  const lines = [];
-  let totalQty = 0;
-  for (const it of items) {
-    const qty = Math.max(1, Math.min(100000, Math.round(Number(it.qty) || 1)));
-    const row = get.get(it.id != null ? it.id : null, String(it.sku || it.id || ''));
-    if (!row) continue;
-    lines.push({ sku: row.sku, brand: row.brand || '', model: row.model || '', qty });
-    totalQty += qty;
+  try {
+    // собираем состав по реальным товарам из базы (не доверяем присланным названиям/ценам)
+    const get = db.prepare('SELECT sku,brand,model FROM products WHERE id=? OR sku=?');
+    const lines = [];
+    let totalQty = 0;
+    for (const it of items) {
+      const qty = Math.max(1, Math.min(100000, Math.round(Number(it.qty) || 1)));
+      const row = get.get(it.id != null ? it.id : null, String(it.sku || it.id || ''));
+      if (!row) continue;
+      lines.push({ sku: row.sku, brand: row.brand || '', model: row.model || '', qty });
+      totalQty += qty;
+    }
+    if (!lines.length) return res.status(400).json({ error: 'Товары не распознаны' });
+    const custName = clamp(name, 100);
+    const custPhone = clamp(phone, 50);
+    const contactStr = clamp(contact, 200) || [custName, custPhone].filter(Boolean).join(', ');
+    const now = new Date().toISOString();
+    const info = db.prepare(`INSERT INTO orders(ts,contact,cust_name,cust_phone,items_json,items_count,total_qty,status,ip)
+      VALUES(?,?,?,?,?,?,?, 'new', ?)`).run(now, contactStr, custName, custPhone, JSON.stringify(lines), lines.length, totalQty, req.ip);
+    // мгновенное уведомление в Telegram (если настроено)
+    notifyOrder({ id: info.lastInsertRowid, ts: now, cust_name: custName, cust_phone: custPhone, items: lines, total_qty: totalQty });
+    res.json({ ok: true, id: info.lastInsertRowid, items: lines.length });
+  } catch (e) {
+    console.error('[order]', e.message);
+    res.status(500).json({ error: 'Не удалось сохранить заявку. Позвоните нам или напишите в WhatsApp.' });
   }
-  if (!lines.length) return res.status(400).json({ error: 'Товары не распознаны' });
-  const custName = clamp(name, 100);
-  const custPhone = clamp(phone, 50);
-  const contactStr = clamp(contact, 200) || [custName, custPhone].filter(Boolean).join(', ');
-  const now = new Date().toISOString();
-  const info = db.prepare(`INSERT INTO orders(ts,contact,cust_name,cust_phone,items_json,items_count,total_qty,status,ip)
-    VALUES(?,?,?,?,?,?,?, 'new', ?)`).run(now, contactStr, custName, custPhone, JSON.stringify(lines), lines.length, totalQty, req.ip);
-  // мгновенное уведомление в Telegram (если настроено)
-  notifyOrder({ id: info.lastInsertRowid, ts: now, cust_name: custName, cust_phone: custPhone, items: lines, total_qty: totalQty });
-  res.json({ ok: true, id: info.lastInsertRowid, items: lines.length });
 });
 
 // ---------- API ВЫГРУЗКИ ИЗ 1С ----------
@@ -1001,12 +1012,43 @@ app.get('/:key.txt', (req, res, next) => {
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 app.use('/images', express.static(IMAGES_DIR, { maxAge: '7d', immutable: false }));
 
-// Подстановка ID Яндекс.Метрики в статические HTML-страницы каталога
+// --- SSR товаров раздела: для краулеров и без-JS список карточек-ссылок;
+//     app.js при загрузке заменяет #grid интерактивной сеткой (дублирования нет) ---
+const SECTION_GROUPS = {
+  'videonablyudenie.html': 'Видеонаблюдение',
+  'setevoe.html': 'Сетевое оборудование',
+  'pozharnaya.html': 'Пожарная безопасность',
+  'skud.html': 'СКУД и домофония',
+};
+const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtKzt = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' \u20B8';
+function ssrGrid(grp) {
+  let rows = [];
+  try { rows = db.prepare('SELECT sku,brand,model,cat,price,img FROM products WHERE grp=? ORDER BY (stock>0) DESC, (price>0) DESC, id DESC LIMIT 300').all(grp); }
+  catch (e) { return ''; }
+  if (!rows.length) return '';
+  return rows.map(r => {
+    const href = '/product/' + encodeURIComponent(r.sku);
+    const imgSrc = r.img ? (/^https?:\/\//i.test(r.img) ? r.img : '/images/' + escHtml(r.img)) : '';
+    const img = imgSrc
+      ? `<a class="imgbox" href="${href}"><img src="${imgSrc}" loading="lazy" alt="${escHtml((r.brand || '') + ' ' + (r.model || ''))}"></a>`
+      : `<a class="imgbox" href="${href}"><div class="noimg">\uD83D\uDCF7</div></a>`;
+    const price = r.price ? `<div class="price">${fmtKzt(r.price)} <small>\u0420\u0420\u0426</small></div>` : `<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>`;
+    return `<div class="card">${img}<div class="cbody"><div class="brand">${escHtml(r.brand || r.cat || '')}</div><div class="cmodel"><a href="${href}">${escHtml(r.model || '')}</a></div><div class="cprice">${price}</div></div></div>`;
+  }).join('');
+}
+
+// Подстановка ID Яндекс.Метрики + SSR товаров раздела в HTML-страницы каталога
 app.get(/\.html$|^\/$/, (req, res, next) => {
   let file = req.path === '/' ? 'index.html' : req.path.replace(/^\//, '');
   const fp = path.join(__dirname, 'public', file);
   fs.readFile(fp, 'utf8', (err, html) => {
     if (err) return next();
+    const grp = SECTION_GROUPS[file];
+    if (grp) {
+      const ssr = ssrGrid(grp);
+      if (ssr) html = html.replace('<div class="grid" id="grid"></div>', '<div class="grid" id="grid">' + ssr + '</div>');
+    }
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(applySeo(html));
   });
