@@ -4,7 +4,7 @@ function ymGoal(name){try{if(window.ym&&window.__YM_ID__&&window.__YM_ID__!=='__
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 let PRODUCTS=[], POOL=[];
 let curGroup=window.PAGE_GROUP||'Все';
-let F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:'default',promoOnly:false,inStock:false};
+let F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:'default',promoOnly:false};
 let CART={};
 
 function fmt(n){return n? n.toLocaleString('ru-RU')+' \u20B8':'';}
@@ -33,21 +33,24 @@ function updateCartUI(){
       '<button class="cart-del" onclick="setQty(\''+id+'\',0)">\u00D7</button></div>';}).join('');
   document.getElementById('cartSend').style.display='block';document.getElementById('cartClear').style.display='block';
 }
-function openCart(){document.getElementById('cartPanel').classList.add('open');document.getElementById('cartOverlay').classList.add('open');}
+function openCart(){ensureCommentField();document.getElementById('cartPanel').classList.add('open');document.getElementById('cartOverlay').classList.add('open');}
+function ensureCommentField(){if(document.getElementById('custComment'))return;const cons=document.querySelector('.cart-consent');if(!cons||!cons.parentNode)return;const ta=document.createElement('textarea');ta.id='custComment';ta.placeholder='Комментарий (необязательно): что нужно, объект, сроки…';ta.maxLength=1000;ta.rows=2;ta.style.cssText='width:100%;margin:8px 0;padding:10px;border:1px solid #ddd;border-radius:8px;font:inherit;box-sizing:border-box;resize:vertical';cons.parentNode.insertBefore(ta,cons);}
 function closeCart(){document.getElementById('cartPanel').classList.remove('open');document.getElementById('cartOverlay').classList.remove('open');}
 function sendCart(){const ids=Object.keys(CART);if(!ids.length)return;
   const nameEl=document.getElementById('custName'),phoneEl=document.getElementById('custPhone');
   const cName=nameEl?nameEl.value.trim():'',cPhone=phoneEl?phoneEl.value.trim():'';
+  const commentEl=document.getElementById('custComment');const cComment=commentEl?commentEl.value.trim():'';
   const consentEl=document.getElementById('custConsent'); if(consentEl&&!consentEl.checked){alert('\u041F\u043E\u0436\u0430\u043B\u0443\u0439\u0441\u0442\u0430, \u043F\u043E\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u0435 \u0441\u043E\u0433\u043B\u0430\u0441\u0438\u0435 \u043D\u0430 \u043E\u0431\u0440\u0430\u0431\u043E\u0442\u043A\u0443 \u043F\u0435\u0440\u0441\u043E\u043D\u0430\u043B\u044C\u043D\u044B\u0445 \u0434\u0430\u043D\u043D\u044B\u0445.');return;}
   if(!cPhone||cPhone.replace(/\D/g,'').length<7){alert('Укажите телефон — менеджер перезвонит вам с ценами и наличием.');if(phoneEl)phoneEl.focus();return;}
   let lines=['Здравствуйте! Прошу посчитать и сообщить наличие:'];
   const payload=[];
   ids.forEach((id,i)=>{const p=PRODUCTS.find(x=>String(x.id)===String(id));if(p){lines.push((i+1)+'. '+(p.brand?p.brand+' ':'')+p.model+' — '+CART[id]+' шт');payload.push({sku:p.sku||p.id,qty:CART[id]});}});
   if(cName||cPhone)lines.push('',(cName?'Имя: '+cName:'')+(cPhone?'  Тел: '+cPhone:''));
+  if(cComment)lines.push('Комментарий: '+cComment);
   lines.push('г. Усть-Каменогорск.');
   const wa='https://wa.me/'+WA_NUMBER+'?text='+encodeURIComponent(lines.join('\n'));
   ymGoal('order_sent');
-  try{fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:payload,name:cName,phone:cPhone})}).catch(()=>{});}catch(e){}
+  try{fetch('/api/order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:payload,name:cName,phone:cPhone,comment:cComment,page:location.pathname,ref:document.referrer,utm:location.search})}).catch(()=>{});}catch(e){}
   if(confirm('Заявка отправлена! Менеджер перезвонит по номеру '+cPhone+'.\n\nПродублировать заявку в WhatsApp прямо сейчас?')){window.open(wa,'_blank');}
   CART={};saveCart();updateCartUI();closeCart();}
 
@@ -56,101 +59,31 @@ function facetCounts(field){ // counts within current pool ignoring this field's
   const c={};POOL.forEach(p=>{
     const vals=Array.isArray(p[field])?p[field]:[p[field]];
     vals.forEach(v=>{if(v)c[v]=(c[v]||0)+1;});});return c;}
-function buildFacet(title,field,values,collapsed){
+function buildFacet(title,field,values){
   const counts=facetCounts(field);
   const opts=values.filter(v=>counts[v]).map(v=>
     '<label class="opt"><input type="checkbox" '+(F[field].has(v)?'checked':'')+' onchange="toggleF(\''+field+'\',\''+v+'\')"> '+v+'<span class="n">'+counts[v]+'</span></label>').join('');
   if(!opts)return'';
-  const cl=collapsed&&!F[field].size?' collapsed':''; // свёрнут, пока в нём ничего не выбрано
-  return '<div class="facet'+cl+'"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">'+title+'</h3><div class="opts">'+opts+'</div></div>';
+  return '<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">'+title+'</h3><div class="opts">'+opts+'</div></div>';
 }
-function toggleF(field,v){F[field].has(v)?F[field].delete(v):F[field].add(v);render();renderActiveTags();updateFilterBadge();}
-function findCatPath(nodes,id,acc){
-  for(const n of (nodes||[])){
-    const a=acc.concat(n.id);
-    if(n.id===id) return a;
-    if(n.children){ const r=findCatPath(n.children,id,a); if(r) return r; }
-  }
-  return null;
-}
-// Путь категории именами (для крошек над товарами)
-function catPathNamed(){
-  if(!curGroup||curGroup==='\u0412\u0441\u0435'||!curCat) return [];
-  const g=CATTREE.find(t=>t.name===curGroup); if(!g) return [];
-  const ids=findCatPath(g.nodes,curCat,[]); if(!ids) return [];
-  const out=[]; let nodes=g.nodes;
-  for(const id of ids){ const n=(nodes||[]).find(x=>x.id===id); if(!n) break; out.push({id:n.id,name:n.name}); nodes=n.children; }
-  return out;
-}
-// Сайдбар: кнопка «Все категории» + быстрые ссылки верхнего уровня раздела (без многоуровневого раскрытия)
-function renderCategoryNav(){
-  let html='<div class="facet catnav-box"><button class="allcat-btn" onclick="openCatalog()">\uD83D\uDCC2 \u0412\u0441\u0435 \u043A\u0430\u0442\u0435\u0433\u043E\u0440\u0438\u0438</button>';
-  if(CATTREE&&CATTREE.length){
-    if(curGroup==='\u0412\u0441\u0435'){
-      html+='<div class="catnav-quick">';
-      CATTREE.forEach(t=>{ html+='<a onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
-      html+='</div>';
-    } else {
-      const g=CATTREE.find(t=>t.name===curGroup);
-      const kids=(g&&g.nodes)?g.nodes:[];
-      html+='<div class="catnav-quick"><a class="'+(curCat===0?'active':'')+'" onclick="selectCat(0)">\u0412\u0441\u0451 \u0432 \u0440\u0430\u0437\u0434\u0435\u043B\u0435</a>';
-      kids.forEach(n=>{ html+='<a class="'+(curCat===n.id?'active':'')+'" onclick="selectCat('+n.id+')">'+esc(n.name)+(n.children?' \u203A':'')+'</a>'; });
-      html+='</div>';
-    }
-  }
-  html+='</div>';
-  return html;
-}
-// Крошки пути категории над товарами (как у Al-Style)
-function renderCatCrumb(){
-  let bar=document.getElementById('catCrumb');
-  if(!bar){ const grid=document.getElementById('grid'); if(!grid) return; bar=document.createElement('div'); bar.id='catCrumb'; bar.className='catcrumb'; grid.parentNode.insertBefore(bar,grid); }
-  if(!curGroup||curGroup==='\u0412\u0441\u0435'){ bar.style.display='none'; bar.innerHTML=''; return; }
-  const path=catPathNamed();
-  let html='<a onclick="selectGroup(\''+curGroup.replace(/'/g,"\\'")+'\')">'+esc(curGroup)+'</a>';
-  path.forEach(p=>{ html+='<span class="sep">\u203A</span><a onclick="selectCat('+p.id+')">'+esc(p.name)+'</a>'; });
-  if(curCat) html+='<button class="crumb-clear" onclick="selectCat(0)">\u00D7 \u0441\u0431\u0440\u043E\u0441\u0438\u0442\u044C</button>';
-  bar.style.display='flex'; bar.innerHTML=html;
-}
+function toggleF(field,v){F[field].has(v)?F[field].delete(v):F[field].add(v);render();renderActiveTags();}
 function renderSidebar(){
-  // каталог категорий — в левый сайдбар
-  document.getElementById('facets').innerHTML=renderCategoryNav();
-  // видимая строка фильтров над списком товаров
-  renderFilterBar();
-}
-function activeFilterCount(){let n=F.brand.size+F.type.size+F.mp.size;if(F.inStock)n++;if(F.pmin!=null)n++;if(F.pmax!=null)n++;return n;}
-function updateFilterBadge(){} // совместимость со старым вызовом
-// Видимая строка фильтров: тумблер «В наличии» + дропдауны Бренд/Тип/Разрешение/Цена (как в макете)
-function facetDropdown(title,field,values){
-  const counts=facetCounts(field);
-  const opts=values.filter(v=>counts[v]).map(v=>'<label class="opt"><input type="checkbox" '+(F[field].has(v)?'checked':'')+' onchange="toggleF(\''+field+'\',\''+v+'\')"> '+v+'<span class="n">'+counts[v]+'</span></label>').join('');
-  if(!opts) return '';
-  const sel=F[field].size;
-  return '<div class="filterwrap"><button class="filterbtn'+(sel?' on':'')+'" onclick="fbToggle(this,event)">'+title+(sel?' <span class="fbadge">'+sel+'</span>':'')+'<span class="ar">▾</span></button><div class="filterdrop" onclick="event.stopPropagation()">'+opts+'</div></div>';
-}
-function renderFilterBar(){
   const brands=[...new Set(POOL.map(p=>p.brand).filter(Boolean))].sort();
   const types=[...new Set(POOL.map(p=>p.type).filter(t=>t&&t!=='\u041F\u0440\u043E\u0447\u0435\u0435'))].sort();
   const mps=['2 \u041C\u041F','3 \u041C\u041F','4 \u041C\u041F','5 \u041C\u041F','6 \u041C\u041F','8 \u041C\u041F'];
-  let h='<button class="stockpill'+(F.inStock?' on':'')+'" onclick="F.inStock=!F.inStock;render();renderActiveTags();renderFilterBar()"><span class="psw'+(F.inStock?' on':'')+'"></span>\u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438</button>';
-  h+=facetDropdown('\u0411\u0440\u0435\u043D\u0434','brand',brands);
-  h+=facetDropdown('\u0422\u0438\u043F','type',types);
-  h+=facetDropdown('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps);
-  const pa=(F.pmin!=null||F.pmax!=null);
-  h+='<div class="filterwrap"><button class="filterbtn'+(pa?' on':'')+'" onclick="fbToggle(this,event)">\u0426\u0435\u043D\u0430'+(pa?' <span class="fbadge">\u20B8</span>':'')+'<span class="ar">\u25BE</span></button><div class="filterdrop" onclick="event.stopPropagation()"><div class="price-row"><input type="number" placeholder="\u043E\u0442" value="'+(F.pmin||'')+'" oninput="F.pmin=this.value?+this.value:null;render();renderActiveTags()"><input type="number" placeholder="\u0434\u043E" value="'+(F.pmax||'')+'" oninput="F.pmax=this.value?+this.value:null;render();renderActiveTags()"></div></div></div>';
-  if(activeFilterCount()) h+='<span class="fb-reset" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C</span>';
-  mountFilterBar(h);
+  const conns=['PoE','Wi-Fi'];
+  let h='';
+  h+=buildFacet('\u0411\u0440\u0435\u043D\u0434','brand',brands);
+  h+=buildFacet('\u0422\u0438\u043F','type',types);
+  h+=buildFacet('\u0420\u0430\u0437\u0440\u0435\u0448\u0435\u043D\u0438\u0435','mp',mps);
+  h+=buildFacet('\u041F\u043E\u0434\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435','conn',conns);
+  h+='<div class="facet"><h3 onclick="this.parentNode.classList.toggle(\'collapsed\')">\u0426\u0435\u043D\u0430, \u20B8</h3><div class="opts"><div class="price-row">'+
+     '<input type="number" id="pmin" placeholder="\u043E\u0442" oninput="F.pmin=this.value?+this.value:null;render()">'+
+     '<input type="number" id="pmax" placeholder="\u0434\u043E" oninput="F.pmax=this.value?+this.value:null;render()"></div></div></div>';
+  h+='<div class="sidebtns"><button class="btn-clear" onclick="clearFilters()">\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0444\u0438\u043B\u044C\u0442\u0440\u044B</button></div>';
+  document.getElementById('facets').innerHTML=h;
 }
-function fbToggle(btn,e){e.stopPropagation();const w=btn.parentNode,o=w.classList.contains('open');document.querySelectorAll('.filterwrap.open').forEach(x=>x.classList.remove('open'));if(!o)w.classList.add('open');}
-function mountFilterBar(html){
-  const tb=document.querySelector('.topbar'); if(!tb) return;
-  let bar=document.getElementById('filterBar');
-  if(!bar){ bar=document.createElement('div'); bar.id='filterBar'; bar.className='filterbar'; tb.parentNode.insertBefore(bar,tb);
-    document.addEventListener('click',()=>document.querySelectorAll('.filterwrap.open').forEach(x=>x.classList.remove('open'))); }
-  bar.innerHTML=html;
-  const old=document.querySelector('.filter-toggle'); if(old) old.style.display='none';
-}
-function clearFilters(){F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:F.sort,inStock:false};
+function clearFilters(){F={brand:new Set(),type:new Set(),mp:new Set(),conn:new Set(),pmin:null,pmax:null,sort:F.sort};
   document.getElementById('search').value='';renderSidebar();render();renderActiveTags();}
 function renderActiveTags(){
   const box=document.getElementById('activeTags');if(!box)return;
@@ -161,7 +94,6 @@ function applyFilters(){
   const q=(document.getElementById('search').value||'').trim().toLowerCase();
   let list=POOL.filter(p=>{
     if(F.promoOnly&&!p.promo)return false;
-    if(F.inStock&&!p.inStock)return false;
     if(F.brand.size&&!F.brand.has(p.brand))return false;
     if(F.type.size&&!F.type.has(p.type))return false;
     if(F.mp.size&&!F.mp.has(p.mp))return false;
@@ -177,19 +109,14 @@ function applyFilters(){
   else if(s==='photo')list.sort((a,b)=>(b.img?1:0)-(a.img?1:0));
   return list;
 }
-function imgURL(s){return /^https?:\/\//i.test(s)?s:'images/'+s;}
-function imgFail(el){if(el&&el.parentNode)el.parentNode.innerHTML='<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>';}
 function cardHTML(it){
   const badge=it.promo?'<span class="fire-badge">\uD83D\uDD25 \u0410\u041A\u0426\u0418\u042F</span>':'';
-  const img=(it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" onerror="imgFail(this)" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
+  const img=(it.img?'<img src="images/'+it.img+'" loading="lazy" alt="'+esc(it.brand+' '+it.model)+'">':'<div class="noimg">\uD83D\uDCF7<br>\u0444\u043E\u0442\u043E<br>\u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>');
   let price;
-  const stockHtml=it.inStock
-    ?'<div class="stock">\u2713 \u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438'+(it.stock?': '+it.stock+' \u0448\u0442':'')+'</div>'
-    :'<div class="stock under">\u041F\u043E\u0434 \u0437\u0430\u043A\u0430\u0437</div>';
   if(it.price){
     const old=(it.promo&&it.oldprice)?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
-    price='<div class="price">'+old+fmt(it.price)+' <small>\u0420\u0420\u0426</small></div>'+stockHtml;
-  } else price='<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>'+stockHtml;
+    price='<div class="price">'+old+fmt(it.price)+' <small>\u0420\u0420\u0426</small></div><div class="stock">\u041E\u043F\u0442 \u2014 \u043F\u0440\u0438 \u0437\u0430\u043A\u0430\u0437\u0435</div>';
+  } else price='<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>';
   return '<div class="card"><a class="imgbox" href="/product/'+encodeURIComponent(it.sku||it.id)+'">'+badge+img+'</a><div class="cbody">'+
     '<div class="brand">'+esc(it.brand||it.cat)+'</div><div class="cmodel">'+esc(it.model)+'</div>'+
     '<div class="cdesc">'+(it.res?esc(it.res)+'. ':'')+esc(it.desc)+'</div><div class="cprice">'+price+'</div>'+
@@ -203,7 +130,7 @@ function renderPromoStrip(){
   box.style.display='block';
   box.innerHTML='<div class="promo-head"><span class="fire">\uD83D\uDD25</span><h2>\u0413\u043E\u0440\u044F\u0447\u0438\u0435 \u043F\u0440\u0435\u0434\u043B\u043E\u0436\u0435\u043D\u0438\u044F</h2><span class="sub">\u0421\u043F\u0435\u0446\u0446\u0435\u043D\u044B \u2014 \u043E\u0433\u0440\u0430\u043D\u0438\u0447\u0435\u043D\u043D\u043E\u0435 \u043A\u043E\u043B\u0438\u0447\u0435\u0441\u0442\u0432\u043E</span></div>'+
     '<div class="promo-scroll">'+promos.map(it=>{
-      const img=it.img?'<img src="'+imgURL(it.img)+'" loading="lazy" decoding="async" onerror="imgFail(this)">':'<div class="ni">\uD83D\uDCF7</div>';
+      const img=it.img?'<img src="images/'+it.img+'" loading="lazy" decoding="async">':'<div class="ni">\uD83D\uDCF7</div>';
       const old=it.oldprice?'<span class="old">'+fmt(it.oldprice)+'</span>':'';
       return '<div class="promo-card"><div class="pi"><span class="fire-badge">\uD83D\uDD25</span>'+img+'</div>'+
         '<div class="pc2"><div class="pb">'+(it.brand||'')+'</div><div class="pm">'+it.model+'</div>'+
@@ -214,7 +141,6 @@ function renderPromoStrip(){
 
 const BATCH=48; let _list=[], _shown=0;
 function render(){
-  renderCatCrumb();
   _list=applyFilters();
   document.getElementById('count').textContent=_list.length+' '+plural(_list.length,'\u043F\u043E\u0437\u0438\u0446\u0438\u044F','\u043F\u043E\u0437\u0438\u0446\u0438\u0438','\u043F\u043E\u0437\u0438\u0446\u0438\u0439');
   const grid=document.getElementById('grid');
@@ -247,49 +173,47 @@ function updateMoreBtn(){
 }
 function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sbOverlay').classList.toggle('open');}
 
-// Переключение раздела/категории по дереву (фильтрация на месте по пути категорий)
-let CATTREE=[], curCat=0;
-function recomputePool(){
-  let base=(curGroup==='\u0412\u0441\u0435')?PRODUCTS:PRODUCTS.filter(p=>p.group===curGroup);
-  POOL=curCat?base.filter(p=>(p.catPath||[]).includes(curCat)):base;
-}
+// Переключение направления (категории) на главной — фильтрация на месте
+let CATTREE=[], curSub='';
 function selectGroup(g){
-  curGroup=g; curCat=0; recomputePool();
+  curGroup=g; curSub='';
+  POOL=(g==='Все')?PRODUCTS:PRODUCTS.filter(p=>p.group===g);
   F.brand.clear&&F.brand.clear(); F.type&&F.type.clear&&F.type.clear(); F.mp&&F.mp.clear&&F.mp.clear(); F.conn&&F.conn.clear&&F.conn.clear();
+  document.querySelectorAll('#dirChips .chip').forEach(c=>c.classList.toggle('active', c.dataset.g===g));
+  buildSubChips(g);
   renderSidebar();renderPromoStrip();render();renderActiveTags();
-  if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
-  window.scrollTo({top:0,behavior:'smooth'});
+  window.scrollTo({top:document.querySelector('.toolbar')?.offsetTop-10||0,behavior:'smooth'});
 }
-// Выбор категории любого уровня дерева
-function selectCat(catId){
-  curCat=Number(catId)||0; recomputePool();
+// Подкатегории выбранного раздела (фильтр по полю товара cat)
+function selectSub(sub){
+  curSub=sub;
+  POOL=PRODUCTS.filter(p=>p.group===curGroup && (sub===''||p.cat===sub));
+  document.querySelectorAll('#subChips .chip').forEach(c=>c.classList.toggle('active', c.dataset.s===sub));
   renderSidebar();render();renderActiveTags();
-  if(window.innerWidth<=900){const sb=document.getElementById('sidebar');if(sb&&sb.classList.contains('open'))toggleSidebar();}
 }
 function buildSubChips(g){
   const box=document.getElementById('subChips'); if(!box) return;
   const node=CATTREE.find(t=>t.name===g);
-  const tops=(node&&node.nodes)?node.nodes:[];
-  if(g==='Все'||!tops.length){box.innerHTML='';box.style.display='none';return;}
+  const subs=(node&&node.subcategories)?node.subcategories:[];
+  if(g==='Все'||!subs.length){box.innerHTML='';box.style.display='none';return;}
   box.style.display='flex';
-  let html='<a class="subchip'+(curCat===0?' active':'')+'" onclick="selectCat(0)">Все в разделе</a>';
-  tops.forEach(n=>{ html+='<a class="subchip'+(curCat===n.id?' active':'')+'" onclick="selectCat('+n.id+')">'+esc(n.name)+'</a>'; });
+  let html='<a class="subchip active" data-s="" onclick="selectSub(\'\')">Все в разделе</a>';
+  subs.forEach(s=>{ html+='<a class="subchip" data-s="'+esc(s)+'" onclick="selectSub(\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
   box.innerHTML=html;
 }
-// Чипы направлений из дерева видимых категорий
+// Построение чипов направлений из дерева видимых категорий (управляются в админке)
 function buildCategoryChips(){
+  const box=document.getElementById('dirChips'); if(!box) return;
   fetch('/api/categories').then(r=>r.json()).then(tree=>{
     CATTREE=Array.isArray(tree)?tree:[];
-    const box=document.getElementById('dirChips');
-    if(box){
-      let html='<a class="chip catalog-btn" onclick="openCatalog()">📂 Все категории</a>';
-      html+='<a class="chip active" data-g="Все" onclick="selectGroup(\'Все\')">Все товары</a>';
-      CATTREE.forEach(t=>{ html+='<a class="chip" data-g="'+esc(t.name)+'" onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
-      box.innerHTML=html;
-    }
-    renderSidebar();
+    // показываем ВСЕ включённые в админке верхние категории
+    let html='<a class="chip catalog-btn" onclick="openCatalog()">📂 Все категории</a>';
+    html+='<a class="chip active" data-g="Все" onclick="selectGroup(\'Все\')">Все товары</a>';
+    CATTREE.forEach(t=>{ html+='<a class="chip" data-g="'+esc(t.name)+'" onclick="selectGroup(\''+t.name.replace(/'/g,"\\'")+'\')">'+esc(t.name)+'</a>'; });
+    box.innerHTML=html;
   }).catch(()=>{});
 }
+// Вкладка «Все категории» — полное дерево, выбор любой категории/подкатегории
 function buildCatalogOverlay(){
   if(document.getElementById('catalogOverlay')) return;
   const ov=document.createElement('div');
@@ -297,72 +221,22 @@ function buildCatalogOverlay(){
   ov.onclick=e=>{ if(e.target===ov) closeCatalog(); };
   document.body.appendChild(ov);
 }
-const isMP=n=>/\u043C\u0435\u0433\u0430\u043F\u0438\u043A\u0441\u0435\u043B\u044C\u043D/i.test(n||''); // «мегапиксельн…»
-let menuG=0;
-// дерево раздела для правой панели (мегапиксели в меню НЕ показываем — они фильтром)
-function menuTreeHTML(group,nodes,depth){
-  let h='';
-  for(const n of (nodes||[])){
-    if(isMP(n.name)) continue;
-    const cls=depth===0?'catalog-sub catalog-sub0':'catalog-sub';
-    h+='<a class="'+cls+'" style="padding-left:'+(depth*12)+'px" onclick="pickCat(\''+group.replace(/'/g,"\\'")+'\','+n.id+')">'+esc(n.name)+'</a>';
-    if(n.children) h+=menuTreeHTML(group,n.children,depth+1);
-  }
-  return h;
-}
 function openCatalog(){
   buildCatalogOverlay();
-  const gi=CATTREE.findIndex(t=>t.name===curGroup); menuG = gi>=0 ? gi : 0;
   const ov=document.getElementById('catalogOverlay');
-  ov.innerHTML='<div class="catalog-panel"><div class="catalog-head"><h2>Каталог</h2>'
-    +'<input id="catSearch" class="catalog-search" placeholder="Быстрый поиск по категории…" oninput="filterCatalogMenu(this.value)">'
-    +'<button onclick="closeCatalog()" class="catalog-x" title="Закрыть">×</button></div>'
-    +'<div id="catalogBody"></div></div>';
-  renderAspro();
-  ov.classList.add('open');
-  setTimeout(()=>{const s=document.getElementById('catSearch');if(s)s.focus();},60);
+  let html='<div class="catalog-panel"><div class="catalog-head"><h2>Все категории</h2><button onclick="closeCatalog()" class="catalog-x">×</button></div><div class="catalog-grid">';
+  if(!CATTREE.length){ html+='<p style="color:#888">Категории загружаются…</p>'; }
+  CATTREE.forEach(t=>{
+    const nm=t.name.replace(/'/g,"\\'");
+    html+='<div class="catalog-col"><a class="catalog-top" onclick="pickCat(\''+nm+'\',\'\')">'+esc(t.name)+'</a>';
+    (t.subcategories||[]).forEach(s=>{ html+='<a class="catalog-sub" onclick="pickCat(\''+nm+'\',\''+s.replace(/'/g,"\\'")+'\')">'+esc(s)+'</a>'; });
+    html+='</div>';
+  });
+  html+='</div></div>';
+  ov.innerHTML=html; ov.classList.add('open');
 }
-// ── Мегаменю в стиле Аспро: Максимум ──
-const GROUP_ICONS={"Видеонаблюдение":"📹","Сетевое оборудование":"🌐","Источники бесперебойного питания (ИБП)":"🔋","Пожарная безопасность":"🔥","СКУД и домофония":"🚪","Кабельные системы":"🧵"};
-const MENU_BRANDS=["Dahua","Hikvision","HiLook","Imou","EZVIZ","Wi-Tek","Болид","APC"];
-const MENU_MAXVIS=6, WA_PRICE="77053541999";
-// подразделы (1-й уровень) → блоки; их дети (2-й уровень) → пункты; мегапиксели убираем
-function asproBlocks(g){
-  const L1=g.nodes||[];
-  const anyKids=L1.some(n=>n.children&&n.children.length);
-  if(anyKids) return L1.map(n=>({header:n.name,hid:n.id,items:(n.children||[]).filter(c=>!isMP(c.name)).map(c=>({name:c.name,id:c.id}))}));
-  return [{header:g.name,hid:0,items:L1.filter(n=>!isMP(n.name)).map(n=>({name:n.name,id:n.id}))}];
-}
-function renderAspro(){
-  const box=document.getElementById('catalogBody'); if(!box) return;
-  if(!CATTREE.length){ box.innerHTML='<p style="opacity:.6">Категории загружаются…</p>'; return; }
-  const g=CATTREE[menuG]||CATTREE[0];
-  const left=CATTREE.map((t,i)=>'<a class="'+(i===menuG?'on':'')+'" onmouseenter="selectMenuGroup('+i+')" onclick="selectMenuGroup('+i+')"><span class="am-ic">'+(GROUP_ICONS[t.name]||'📦')+'</span>'+esc(t.name)+'<span class="am-arr">›</span></a>').join('');
-  const gn=g.name.replace(/'/g,"\\'");
-  const cols=asproBlocks(g).map(b=>{
-    const head='<div class="am-bt" onclick="pickCat(\''+gn+'\','+b.hid+')">'+esc(b.header)+'</div>';
-    const vis=b.items.slice(0,MENU_MAXVIS).map(it=>'<a onclick="pickCat(\''+gn+'\','+it.id+')">'+esc(it.name)+'</a>').join('');
-    const more=b.items.length>MENU_MAXVIS?'<span class="am-more" onclick="pickCat(\''+gn+'\','+b.hid+')">Ещё '+(b.items.length-MENU_MAXVIS)+' →</span>':'';
-    return '<div class="am-block">'+head+vis+more+'</div>';
-  }).join('');
-  const promo='<div class="am-promo"><div class="am-banner"><div class="am-bnt">Оптовые цены</div><div class="am-bns">Прайс для монтажников и оптовиков. Спеццена от 50 шт.</div>'
-    +'<a class="am-bnb" href="https://wa.me/'+WA_PRICE+'?text='+encodeURIComponent('Здравствуйте, пришлите прайс')+'" target="_blank" rel="noopener">Запросить прайс</a></div>'
-    +'<div class="am-brh">Бренды</div><div class="am-brands">'+MENU_BRANDS.map(b=>'<span class="am-brand" onclick="menuPickBrand(\''+b.replace(/'/g,"\\'")+'\')">'+esc(b)+'</span>').join('')+'</div></div>';
-  box.innerHTML='<div class="am"><div class="am-left">'+left+'</div><div class="am-right"><div class="am-cols">'+cols+'</div>'+promo+'</div></div>';
-}
-function menuPickBrand(b){ closeCatalog(); const s=document.getElementById('search'); if(s){ s.value=b; s.dispatchEvent(new Event('input')); window.scrollTo({top:0,behavior:'smooth'}); } }
-function renderCatalogSearch(q){
-  const box=document.getElementById('catalogBody'); if(!box) return;
-  const hits=[];
-  CATTREE.forEach(t=>{ (function walk(nodes){ (nodes||[]).forEach(n=>{ if(!isMP(n.name) && n.name.toLowerCase().includes(q)) hits.push({g:t.name,id:n.id,name:n.name}); walk(n.children); }); })(t.nodes); });
-  box.innerHTML = hits.length
-    ? '<div class="catalog-hits">'+hits.slice(0,80).map(h=>'<a onclick="pickCat(\''+h.g.replace(/'/g,"\\'")+'\','+h.id+')">'+esc(h.name)+' <span class="cg">'+esc(h.g)+'</span></a>').join('')+'</div>'
-    : '<p style="opacity:.6">Ничего не найдено</p>';
-}
-function filterCatalogMenu(q){ q=(q||'').trim().toLowerCase(); if(q) renderCatalogSearch(q); else renderAspro(); }
-function selectMenuGroup(i){ if(i===menuG && document.querySelector('.am-cols')) return; menuG=i; renderAspro(); }
 function closeCatalog(){ const ov=document.getElementById('catalogOverlay'); if(ov)ov.classList.remove('open'); }
-function pickCat(group,catId){ closeCatalog(); selectGroup(group); if(catId) setTimeout(()=>selectCat(catId),60); }
+function pickCat(top,sub){ closeCatalog(); selectGroup(top); if(sub) setTimeout(()=>selectSub(sub),50); }
 
 loadCart();
 // индикатор загрузки каталога
@@ -370,9 +244,9 @@ loadCart();
 function loadCatalog(){
   fetch('/api/products').then(r=>{ if(!r.ok) throw new Error('http '+r.status); return r.json(); }).then(d=>{
     PRODUCTS=d;
-    recomputePool();
+    POOL=curGroup==='\u0412\u0441\u0435'?d:d.filter(p=>p.group===curGroup);
     renderSidebar();renderPromoStrip();render();updateCartUI();renderActiveTags();
-    buildCategoryChips();
+    if(window.PAGE_GROUP==='\u0412\u0441\u0435'||!window.PAGE_GROUP) buildCategoryChips();
     const s=document.getElementById('search'); if(s&&!s.dataset.bound){ s.dataset.bound='1'; let _st; const dr=()=>{clearTimeout(_st);_st=setTimeout(render,180);}; s.addEventListener('input',dr); }
     const so=document.getElementById('sortsel'); if(so&&!so.dataset.bound){ so.dataset.bound='1'; so.addEventListener('change',e=>{F.sort=e.target.value;render();}); }
   }).catch(()=>{

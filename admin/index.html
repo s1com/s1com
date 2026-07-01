@@ -379,18 +379,22 @@ async function catDel(id,name){
   await renderCats();
 }
 
-async function showOrders(){
+function ordStatusFilter(fs){
+  const opts=[['','Все статусы'],['new','Новые'],['in_work','В работе'],['order','Заказы'],['rejected','Отказы']];
+  return '<select onchange="showOrders(this.value)" style="padding:6px;border:1px solid #ddd;border-radius:7px;font-size:13px;margin-left:6px">'+opts.map(function(o){return '<option value="'+o[0]+'"'+(String(fs||'')===o[0]?' selected':'')+'>'+o[1]+'</option>';}).join('')+'</select>';
+}
+async function showOrders(fs){
   const box=document.getElementById('ordBox');const log=document.getElementById('logBox');if(log)log.classList.add('hide');
   ['catBox','dashBox','settingsBox','supBox','faqBox'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.add('hide');});
   box.classList.remove('hide');
   box.scrollIntoView({behavior:'smooth',block:'start'});
   box.innerHTML='<p style="color:#888;padding:10px">Загрузка заявок…</p>';
   try{
-    const r=await fetch('/api/admin/orders',{headers:H()});
+    const r=await fetch('/api/admin/orders'+(fs?'?status='+encodeURIComponent(fs):''),{headers:H()});
     if(!r.ok) throw new Error('сервер ответил '+r.status);
     const d=await r.json();
     const fmtd=ts=>new Date(ts).toLocaleString('ru-RU');
-    box.innerHTML='<h3>📋 Заявки с сайта ('+d.counts.new+' новых из '+d.counts.total+') <button onclick="showOrders()" style="background:#eee;color:#333;padding:6px 12px;font-size:13px;margin-left:6px">↻ Обновить</button> <button onclick="exportOrders()" style="background:#0a8a5f;color:#fff;padding:6px 12px;font-size:13px;margin-left:4px">⬇ Экспорт в Excel</button> <button onclick="document.getElementById(\'ordBox\').classList.add(\'hide\')" style="background:#fff;border:1px solid #ccc;color:#666;padding:6px 12px;font-size:13px;margin-left:4px">✕ Закрыть</button></h3>'+
+    box.innerHTML='<h3>📋 Заявки с сайта ('+d.counts.new+' новых из '+d.counts.total+') <button onclick="showOrders()" style="background:#eee;color:#333;padding:6px 12px;font-size:13px;margin-left:6px">↻ Обновить</button> '+ordStatusFilter(fs)+' <button onclick="exportOrders()" style="background:#0a8a5f;color:#fff;padding:6px 12px;font-size:13px;margin-left:4px">⬇ Экспорт в Excel</button> <button onclick="document.getElementById(\'ordBox\').classList.add(\'hide\')" style="background:#fff;border:1px solid #ccc;color:#666;padding:6px 12px;font-size:13px;margin-left:4px">✕ Закрыть</button></h3>'+
       (d.orders.length?d.orders.map(o=>{
         const items=(o.items||[]).map(i=>esc((i.brand?i.brand+' ':'')+i.model)+' — <b>'+i.qty+' шт</b>').join('<br>');
         const ST={'new':['● Новая','#1a7fd4','#f0f8ff'],'in_work':['⏳ В работе','#d98800','#fff8ef'],'order':['🟢 Заказ','#1a9e4b','#f1fbf5'],'done':['🟢 Заказ','#1a9e4b','#f3fbf6'],'rejected':['🔴 Отказ','#E02128','#fff2f2']};
@@ -400,6 +404,8 @@ async function showOrders(){
           '<b>Заявка #'+o.id+' · '+fmtd(o.ts)+'</b>'+
           '<span style="color:'+sm[1]+';font-weight:700">'+sm[0]+'</span></div>'+
           (o.contact?'<div style="font-size:12px;color:#666;margin-top:4px">Контакт: '+esc(o.contact)+'</div>':'')+
+          ((o.service||o.src_page||o.utm)?'<div style="font-size:11.5px;color:#999;margin-top:4px">'+[o.service?'🏷 '+esc(o.service):'',o.src_page?'📄 '+esc(o.src_page):'',o.utm?'🔗 '+esc(o.utm):''].filter(Boolean).join(' · ')+'</div>':'')+
+          (o.comment?'<div style="font-size:12.5px;color:#333;margin-top:6px;background:#fffdf0;border:1px solid #f0e6b0;border-radius:6px;padding:6px 8px">💬 '+esc(o.comment)+'</div>':'')+
           '<div style="margin-top:8px;font-size:13px">'+items+'</div>'+
           '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'+
           '<span style="font-size:12px;color:#666">Сумма:</span><input type="number" id="oa-'+o.id+'" value="'+amount+'" placeholder="₸" style="width:105px;padding:5px;border:1px solid #ddd;border-radius:6px;font-size:12px">'+

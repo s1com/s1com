@@ -251,6 +251,17 @@ app.get('/api/categories', (req, res) => {
 // ---------- ПРИЁМ ЗАЯВКИ (с сайта) ----------
 // Сохраняет заявку в базу. Клиент отправляет {items:[{sku,qty}], contact?}
 const orderLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, message: { error: 'Слишком много заявок, подождите минуту.' } });
+// услуга по странице-источнику заявки
+function serviceFromPage(p) {
+  p = String(p || '').toLowerCase();
+  if (p.includes('videonablyudenie')) return 'Видеонаблюдение';
+  if (p.includes('setevoe')) return 'Сетевое оборудование';
+  if (p.includes('skud')) return 'СКУД и домофония';
+  if (p.includes('pozharnaya')) return 'Пожарная безопасность';
+  if (p.includes('/product/')) return 'Каталог (карточка товара)';
+  return 'Главная / каталог';
+}
+
 app.post('/api/order', orderLimiter, (req, res) => {
   const b = req.body || {};
   // honeypot: скрытые поля заполняют боты — тихо «принимаем», но не сохраняем
@@ -274,9 +285,14 @@ app.post('/api/order', orderLimiter, (req, res) => {
     const custName = clamp(name, 100);
     const custPhone = clamp(phone, 50);
     const contactStr = clamp(contact, 200) || [custName, custPhone].filter(Boolean).join(', ');
+    const srcPage = clamp(b.page || req.get('referer') || '', 300);
+    const referer = clamp(b.ref || '', 300);
+    const utm = clamp(b.utm || '', 500);
+    const comment = clamp(b.comment || '', 2000);
+    const service = clamp(b.service || '', 100) || serviceFromPage(srcPage);
     const now = new Date().toISOString();
-    const info = db.prepare(`INSERT INTO orders(ts,contact,cust_name,cust_phone,items_json,items_count,total_qty,status,ip)
-      VALUES(?,?,?,?,?,?,?, 'new', ?)`).run(now, contactStr, custName, custPhone, JSON.stringify(lines), lines.length, totalQty, req.ip);
+    const info = db.prepare(`INSERT INTO orders(ts,contact,cust_name,cust_phone,items_json,items_count,total_qty,status,ip,service,src_page,referer,utm,comment)
+      VALUES(?,?,?,?,?,?,?, 'new', ?,?,?,?,?,?)`).run(now, contactStr, custName, custPhone, JSON.stringify(lines), lines.length, totalQty, req.ip, service, srcPage, referer, utm, comment);
     // мгновенное уведомление в Telegram (если настроено)
     notifyOrder({ id: info.lastInsertRowid, ts: now, cust_name: custName, cust_phone: custPhone, items: lines, total_qty: totalQty });
     res.json({ ok: true, id: info.lastInsertRowid, items: lines.length });
@@ -709,14 +725,17 @@ app.post('/api/admin/import-file', auth, (req, res) => {
 // ---------- АДМИНКА: заявки ----------
 app.get('/api/admin/orders', auth, (req, res) => {
   const status = req.query.status;
+  const ALLOWED = ['new', 'in_work', 'order', 'rejected', 'done'];
   let sql = 'SELECT * FROM orders';
   const args = [];
-  if (status === 'new' || status === 'done') { sql += ' WHERE status=?'; args.push(status); }
-  sql += ' ORDER BY id DESC LIMIT 200';
+  if (ALLOWED.includes(status)) { sql += ' WHERE status=?'; args.push(status); }
+  sql += ' ORDER BY id DESC LIMIT 500';
   const rows = db.prepare(sql).all(...args).map(o => ({
     id: o.id, ts: o.ts, contact: o.contact || '', name: o.cust_name || '', phone: o.cust_phone || '',
     items: JSON.parse(o.items_json || '[]'),
-    items_count: o.items_count, total_qty: o.total_qty, status: o.status, note: o.note || ''
+    items_count: o.items_count, total_qty: o.total_qty, status: o.status, note: o.note || '',
+    amount: o.amount || 0, service: o.service || '', src_page: o.src_page || '',
+    referer: o.referer || '', utm: o.utm || '', comment: o.comment || ''
   }));
   const counts = { new: db.prepare("SELECT COUNT(*) c FROM orders WHERE status='new'").get().c,
                    total: db.prepare('SELECT COUNT(*) c FROM orders').get().c };
@@ -802,21 +821,22 @@ app.delete('/api/admin/categories/:id', auth, (req, res) => {
 // ---------- АДМИНКА: экспорт заявок в Excel ----------
 app.get('/api/admin/orders/export', auth, (req, res) => {
   const orders = db.prepare('SELECT * FROM orders ORDER BY id DESC').all();
+  const stLabel = s => ({ 'new': 'новая', 'in_work': 'в работе', 'order': 'заказ', 'done': 'заказ', 'rejected': 'отказ' }[s] || s || '');
   // плоская таблица: одна строка на позицию заявки
-  const rows = [['№ заявки', 'Дата', 'Статус', 'Имя', 'Телефон', 'Бренд', 'Модель', 'Артикул', 'Кол-во', 'Заметка']];
+  const rows = [['№ заявки', 'Дата', 'Статус', 'Имя', 'Телефон', 'Услуга', 'Страница', 'UTM', 'Комментарий', 'Сумма ₸', 'Бренд', 'Модель', 'Артикул', 'Кол-во', 'Заметка']];
   orders.forEach(o => {
     const items = JSON.parse(o.items_json || '[]');
     const d = new Date(o.ts).toLocaleString('ru-RU');
-    const st = o.status === 'done' ? 'обработана' : 'новая';
-    if (!items.length) { rows.push([o.id, d, st, o.cust_name || '', o.cust_phone || '', '', '', '', '', o.note || '']); return; }
+    const st = stLabel(o.status);
+    const head = [o.id, d, st, o.cust_name || '', o.cust_phone || '', o.service || '', o.src_page || '', o.utm || '', o.comment || '', o.amount || 0];
+    if (!items.length) { rows.push([...head, '', '', '', '', o.note || '']); return; }
     items.forEach((it, idx) => {
-      rows.push([idx === 0 ? o.id : '', idx === 0 ? d : '', idx === 0 ? st : '',
-        idx === 0 ? (o.cust_name || '') : '', idx === 0 ? (o.cust_phone || '') : '',
-        it.brand || '', it.model || '', it.sku || '', it.qty, idx === 0 ? (o.note || '') : '']);
+      const h = idx === 0 ? head : ['', '', '', '', '', '', '', '', '', ''];
+      rows.push([...h, it.brand || '', it.model || '', it.sku || '', it.qty, idx === 0 ? (o.note || '') : '']);
     });
   });
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 9 }, { wch: 18 }, { wch: 11 }, { wch: 18 }, { wch: 16 }, { wch: 14 }, { wch: 26 }, { wch: 16 }, { wch: 8 }, { wch: 24 }];
+  ws['!cols'] = [{ wch: 9 }, { wch: 18 }, { wch: 10 }, { wch: 16 }, { wch: 15 }, { wch: 20 }, { wch: 22 }, { wch: 20 }, { wch: 28 }, { wch: 10 }, { wch: 13 }, { wch: 24 }, { wch: 15 }, { wch: 7 }, { wch: 22 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Заявки');
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

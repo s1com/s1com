@@ -163,6 +163,11 @@ ensureColumn('orders','cust_name','cust_name TEXT');
 ensureColumn('orders','cust_phone','cust_phone TEXT');
 ensureColumn('orders','done_at','done_at TEXT');
 ensureColumn('orders','amount','amount REAL DEFAULT 0'); // сумма продажи (ставится при статусе «Заказ»)
+ensureColumn('orders','service','service TEXT');   // услуга (по странице-источнику)
+ensureColumn('orders','src_page','src_page TEXT'); // страница, с которой пришла заявка
+ensureColumn('orders','referer','referer TEXT');   // откуда перешёл на сайт
+ensureColumn('orders','utm','utm TEXT');           // UTM-метки (сырые)
+ensureColumn('orders','comment','comment TEXT');   // комментарий клиента
 
 // Миграция categories на дерево по ID Al-Style: если таблица старого вида (без cat_id) —
 // пересоздаём (категории всё равно восстанавливаются при следующем импорте).
