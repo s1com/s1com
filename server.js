@@ -207,10 +207,29 @@ app.get('/health', (req, res) => {
 // Поддерживает необязательную пагинацию ?limit=&offset= (по умолчанию отдаёт всё для клиентского фильтра)
 app.get('/api/products', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 0, 5000);
-  let sql = 'SELECT * FROM products WHERE visible=1 ORDER BY (price=0), brand, model';
+  const q = clamp(req.query.q, 60).trim();
+  const grp = clamp(req.query.group, 100).trim();
+  const args = [];
+  let where = 'visible=1';
+  if (q) { const like = '%' + q.replace(/[%_]/g, '') + '%'; where += ' AND (brand LIKE ? OR model LIKE ? OR sku LIKE ? OR cat LIKE ?)'; args.push(like, like, like, like); }
+  if (grp) { where += ' AND grp=?'; args.push(grp); }
+  let sql = 'SELECT * FROM products WHERE ' + where + ' ORDER BY (price=0), brand, model';
   if (limit) sql += ' LIMIT ' + limit + ' OFFSET ' + (Number(req.query.offset) || 0);
   res.set('Cache-Control', 'public, max-age=120'); // лёгкое кэширование
-  res.json(db.prepare(sql).all().map(rowToPublic));
+  res.json(db.prepare(sql).all(...args).map(rowToPublic));
+});
+
+// Данные для главной страницы: категории со счётчиками, топ-бренды, хиты, новинки
+app.get('/api/home', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  try {
+    const groups = db.prepare("SELECT grp, COUNT(*) c FROM products WHERE visible=1 AND grp!='' GROUP BY grp").all();
+    const gmap = {}; groups.forEach(r => gmap[r.grp] = r.c);
+    const brands = db.prepare("SELECT brand, COUNT(*) c FROM products WHERE visible=1 AND brand!='' GROUP BY brand ORDER BY c DESC LIMIT 12").all();
+    const hits = db.prepare("SELECT * FROM products WHERE visible=1 AND price>0 AND stock>0 ORDER BY (promo=0), stock DESC, id DESC LIMIT 8").all().map(rowToPublic);
+    const newest = db.prepare("SELECT * FROM products WHERE visible=1 ORDER BY id DESC LIMIT 8").all().map(rowToPublic);
+    res.json({ groups: gmap, brands, hits, newest });
+  } catch (e) { console.error('[home]', e.message); res.status(500).json({ error: 'Ошибка' }); }
 });
 
 
