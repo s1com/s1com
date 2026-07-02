@@ -71,7 +71,7 @@ function renderHome(d){
   $('homeHits').innerHTML=(d.hits||[]).map(pcard).join('')||'<p style="color:#9aa2ae">—</p>';
   $('homeNew').innerHTML=(d.newest||[]).map(pcard).join('')||'<p style="color:#9aa2ae">—</p>';
   var br=d.brands||[];
-  $('homeBrands').innerHTML=br.length?br.map(function(b){return '<a class="brand" href="/videonablyudenie.html">'+esc(b.brand)+'</a>';}).join(''):'';
+  $('homeBrands').innerHTML=br.length?br.map(function(b){return '<a class="brand" href="/brands.html?brand='+encodeURIComponent(b.brand)+'">'+esc(b.brand)+'</a>';}).join(''):'';
 }
 
 // ---- mega menu (вариант C: плитки → подкатегории) ----

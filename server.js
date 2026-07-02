@@ -209,10 +209,12 @@ app.get('/api/products', (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 0, 5000);
   const q = clamp(req.query.q, 60).trim();
   const grp = clamp(req.query.group, 100).trim();
+  const brand = clamp(req.query.brand, 100).trim();
   const args = [];
   let where = 'visible=1';
   if (q) { const like = '%' + q.replace(/[%_]/g, '') + '%'; where += ' AND (brand LIKE ? OR model LIKE ? OR sku LIKE ? OR cat LIKE ?)'; args.push(like, like, like, like); }
   if (grp) { where += ' AND grp=?'; args.push(grp); }
+  if (brand) { where += ' AND brand=?'; args.push(brand); }
   let sql = 'SELECT * FROM products WHERE ' + where + ' ORDER BY (price=0), brand, model';
   if (limit) sql += ' LIMIT ' + limit + ' OFFSET ' + (Number(req.query.offset) || 0);
   res.set('Cache-Control', 'public, max-age=120'); // лёгкое кэширование
@@ -230,6 +232,15 @@ app.get('/api/home', (req, res) => {
     const newest = db.prepare("SELECT * FROM products WHERE visible=1 ORDER BY id DESC LIMIT 8").all().map(rowToPublic);
     res.json({ groups: gmap, brands, hits, newest });
   } catch (e) { console.error('[home]', e.message); res.status(500).json({ error: 'Ошибка' }); }
+});
+
+// Все бренды со счётчиками (для страницы брендов)
+app.get('/api/brands', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  try {
+    const rows = db.prepare("SELECT brand, COUNT(*) c FROM products WHERE visible=1 AND brand!='' GROUP BY brand ORDER BY c DESC, brand").all();
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Ошибка' }); }
 });
 
 
@@ -1058,22 +1069,26 @@ const SECTION_GROUPS = {
   'setevoe.html': 'Сетевое оборудование',
   'pozharnaya.html': 'Пожарная безопасность',
   'skud.html': 'СКУД и домофония',
+  'ibp.html': 'Источники бесперебойного питания (ИБП)',
+  'kabelnye.html': 'Кабельные системы',
 };
 const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtKzt = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' \u20B8';
 function ssrGrid(grp) {
   let rows = [];
-  try { rows = db.prepare('SELECT sku,brand,model,cat,price,img FROM products WHERE grp=? ORDER BY (stock>0) DESC, (price>0) DESC, id DESC LIMIT 300').all(grp); }
+  try { rows = db.prepare('SELECT sku,brand,model,cat,res,price,stock,img FROM products WHERE grp=? AND visible=1 ORDER BY (stock>0) DESC, (price>0) DESC, id DESC LIMIT 48').all(grp); }
   catch (e) { return ''; }
   if (!rows.length) return '';
   return rows.map(r => {
     const href = '/product/' + encodeURIComponent(r.sku);
     const imgSrc = r.img ? (/^https?:\/\//i.test(r.img) ? r.img : '/images/' + escHtml(r.img)) : '';
-    const img = imgSrc
-      ? `<a class="imgbox" href="${href}"><img src="${imgSrc}" loading="lazy" alt="${escHtml((r.brand || '') + ' ' + (r.model || ''))}"></a>`
-      : `<a class="imgbox" href="${href}"><div class="noimg">\uD83D\uDCF7</div></a>`;
-    const price = r.price ? `<div class="price">${fmtKzt(r.price)} <small>\u0420\u0420\u0426</small></div>` : `<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>`;
-    return `<div class="card">${img}<div class="cbody"><div class="brand">${escHtml(r.brand || r.cat || '')}</div><div class="cmodel"><a href="${href}">${escHtml(r.model || '')}</a></div><div class="cprice">${price}</div></div></div>`;
+    const badge = (r.stock > 0) ? `<span class="badge in">\u2713 \u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438</span>` : `<span class="badge pre">\u041F\u043E\u0434 \u0437\u0430\u043A\u0430\u0437</span>`;
+    const imgHtml = imgSrc
+      ? `<a class="pimg" href="${href}"><img src="${imgSrc}" loading="lazy" alt="${escHtml((r.brand || '') + ' ' + (r.model || ''))}">${badge}</a>`
+      : `<a class="pimg" href="${href}"><div class="noimg">\uD83D\uDCF7</div>${badge}</a>`;
+    const specs = r.res ? `<div class="pb-spec"><span>${escHtml(r.res)}</span></div>` : '';
+    const price = r.price ? `<b>${fmtKzt(r.price)}</b><small>\u0420\u0420\u0426</small>` : `<span class="req">\u0426\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</span>`;
+    return `<div class="pcard">${imgHtml}<div class="pbody"><div class="pb-brand">${escHtml(r.brand || r.cat || '')}</div><a class="pb-name" href="${href}">${escHtml(r.model || '')}</a>${r.sku ? `<div class="pb-art">\u0430\u0440\u0442. ${escHtml(r.sku)}</div>` : ''}${specs}<div class="pb-price">${price}</div></div></div>`;
   }).join('');
 }
 
@@ -1086,7 +1101,7 @@ app.get(/\.html$|^\/$/, (req, res, next) => {
     const grp = SECTION_GROUPS[file];
     if (grp) {
       const ssr = ssrGrid(grp);
-      if (ssr) html = html.replace('<div class="grid" id="grid"></div>', '<div class="grid" id="grid">' + ssr + '</div>');
+      if (ssr) html = html.replace('<div class="prodgrid" id="grid"></div>', '<div class="prodgrid" id="grid">' + ssr + '</div>');
     }
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(applySeo(html));
