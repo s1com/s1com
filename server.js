@@ -878,6 +878,7 @@ app.get('/api/admin/orders/export', auth, (req, res) => {
 
 // ---------- АДМИНКА: дашборд (статистика) ----------
 app.get('/api/admin/stats', auth, (req, res) => {
+ try {
   const now = Date.now(); const day = 864e5; const iso = ms => new Date(ms).toISOString();
 
   // ---------- ТОВАРЫ (здоровье каталога) ----------
@@ -887,7 +888,7 @@ app.get('/api/admin/stats', auth, (req, res) => {
   const noPrice   = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (price=0 OR price IS NULL)').get().c;
   const withPhoto = db.prepare("SELECT COUNT(*) c FROM products WHERE visible=1 AND img IS NOT NULL AND img<>''").get().c;
   const hidden    = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=0').get().c;
-  const stale7d   = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (updated_at IS NULL OR updated_at < ?)').get(iso(now - 7 * day)).c;
+  let stale7d = 0; try { stale7d = db.prepare('SELECT COUNT(*) c FROM products WHERE visible=1 AND (updated_at IS NULL OR updated_at < ?)').get(iso(now - 7 * day)).c; } catch (e) {}
   const byGroup   = db.prepare('SELECT grp, COUNT(*) c FROM products WHERE visible=1 GROUP BY grp ORDER BY c DESC').all();
   const categoriesVisible = db.prepare('SELECT COUNT(*) c FROM categories WHERE visible=1').get().c;
 
@@ -948,7 +949,7 @@ app.get('/api/admin/stats', auth, (req, res) => {
   const unmetDemand = Object.values(unmet).sort((a, b) => b.qty - a.qty).slice(0, 8);
 
   // ---------- СВЕЖЕСТЬ СИНХРОНИЗАЦИИ ----------
-  const lastImport = db.prepare('SELECT ts, source, created, updated, deactivated, skipped, note FROM import_log ORDER BY id DESC LIMIT 1').get() || null;
+  let lastImport = null; try { lastImport = db.prepare('SELECT ts, source, created, updated, deactivated, skipped, note FROM import_log ORDER BY id DESC LIMIT 1').get() || null; } catch (e) {}
   const importAgeHours = lastImport && lastImport.ts ? Math.round((now - new Date(lastImport.ts).getTime()) / 36e5) : null;
 
   res.json({
@@ -958,6 +959,10 @@ app.get('/api/admin/stats', auth, (req, res) => {
     topDemand, topBrands, topCats, unmetDemand,
     sync: { lastImport, importAgeHours }
   });
+ } catch (e) {
+    console.error('[stats]', e && e.message);
+    res.json({ products: { total: 0, inStock: 0, outStock: 0, promo: 0, noPrice: 0, withPhoto: 0, noPhoto: 0, hidden: 0, stale7d: 0 }, orders: { new: 0, done: 0, total: 0, last24h: 0, week: 0, month: 0, prevMonth: 0, growthPct: 0, avgItems: 0, oldestNewDays: null, avgResponseDays: null, pipeline: 0 }, ordersDaily: [], byGroup: [], categoriesVisible: 0, topDemand: [], topBrands: [], topCats: [], unmetDemand: [], sync: { lastImport: null, importAgeHours: null }, _error: String((e && e.message) || e) });
+ }
 });
 
 // ---------- АДМИНКА: настройки сайта (Метрика, верификация поисковиков) ----------

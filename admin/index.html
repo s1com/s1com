@@ -171,8 +171,11 @@ async function importFile(e){
   else alert('Ошибка импорта: '+(d.error||''));
 }
 async function addRow(){
-  const r=await fetch('/api/admin/products',{method:'POST',headers:H(),body:JSON.stringify({group:GROUPS[0],model:'Новый товар'})});
-  if(r.ok)await load();
+  try{
+    const r=await fetch('/api/admin/products',{method:'POST',headers:H(),body:JSON.stringify({group:GROUPS[0]||'Видеонаблюдение',model:'Новый товар'})});
+    if(r.ok){ await load(); const q=document.getElementById('q'); if(q){ q.value='Новый товар'; if(typeof render==='function') render(); q.scrollIntoView({behavior:'smooth',block:'center'}); } alert('Добавлен пустой товар «Новый товар» — таблица отфильтрована по нему. Заполните бренд, модель, цену и т.д., затем нажмите «Сохранить всё».'); }
+    else { const d=await r.json().catch(()=>({})); alert('Не удалось добавить товар: '+(d.error||('ошибка '+r.status))); }
+  }catch(e){ alert('Не удалось добавить товар: '+(e&&e.message?e.message:e)); }
 }
 async function del(i){
   if(!confirm('Удалить товар?'))return;
@@ -196,10 +199,13 @@ async function loadOrdersBadge(){
 
 
 async function showDash(){
-  ['logBox','ordBox','catBox','settingsBox','supBox','faqBox'].forEach(id=>document.getElementById(id).classList.add('hide'));
+  ['logBox','ordBox','catBox','settingsBox','supBox','faqBox'].forEach(id=>{var e=document.getElementById(id);if(e)e.classList.add('hide');});
   const box=document.getElementById('dashBox');box.classList.toggle('hide');if(box.classList.contains('hide'))return;
   box.innerHTML='<p style="color:#888">Загрузка статистики…</p>';
-  const s=await (await fetch('/api/admin/stats',{headers:H()})).json();
+  let s;
+  try{ const rr=await fetch('/api/admin/stats',{headers:H()}); if(!rr.ok) throw new Error('сервер вернул '+rr.status); s=await rr.json(); }
+  catch(err){ box.innerHTML='<h3>📊 Дашборд</h3><div style="padding:14px;background:#fdecea;color:#c0392b;border-radius:8px;font-size:14px">Не удалось загрузить статистику: '+(err&&err.message?err.message:err)+'.<br>Обновите страницу (Cmd+Shift+R). Если не помогает — задеплойте сервер последней версией (server.js).</div>'; return; }
+  s=s||{}; s.orders=s.orders||{}; s.products=s.products||{}; s.sync=s.sync||{}; s.ordersDaily=s.ordersDaily||[]; s.byGroup=s.byGroup||[]; s.unmetDemand=s.unmetDemand||[]; s.topDemand=s.topDemand||[]; s.topBrands=s.topBrands||[]; s.topCats=s.topCats||[];
   const money=n=>(Math.round(n||0)).toLocaleString('ru-RU')+' ₸';
   const pct=(a,b)=>b?Math.round(a/b*100):0;
   const card=(label,val,color,sub,subColor)=>'<div style="flex:1;min-width:140px;background:#fff;border:1px solid #eee;border-radius:12px;padding:16px"><div style="font-size:26px;font-weight:800;color:'+(color||'#222')+'">'+val+'</div><div style="font-size:12px;color:#888;margin-top:2px">'+label+'</div>'+(sub?'<div style="font-size:11.5px;color:'+(subColor||'#aaa')+';margin-top:4px">'+sub+'</div>':'')+'</div>';
