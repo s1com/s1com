@@ -1058,26 +1058,22 @@ const SECTION_GROUPS = {
   'setevoe.html': 'Сетевое оборудование',
   'pozharnaya.html': 'Пожарная безопасность',
   'skud.html': 'СКУД и домофония',
-  'ibp.html': 'Источники бесперебойного питания (ИБП)',
-  'kabelnye.html': 'Кабельные системы',
 };
 const escHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtKzt = n => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' \u20B8';
 function ssrGrid(grp) {
   let rows = [];
-  try { rows = db.prepare('SELECT sku,brand,model,cat,res,price,stock,img FROM products WHERE grp=? AND visible=1 ORDER BY (stock>0) DESC, (price>0) DESC, id DESC LIMIT 48').all(grp); }
+  try { rows = db.prepare('SELECT sku,brand,model,cat,price,img FROM products WHERE grp=? ORDER BY (stock>0) DESC, (price>0) DESC, id DESC LIMIT 300').all(grp); }
   catch (e) { return ''; }
   if (!rows.length) return '';
   return rows.map(r => {
     const href = '/product/' + encodeURIComponent(r.sku);
     const imgSrc = r.img ? (/^https?:\/\//i.test(r.img) ? r.img : '/images/' + escHtml(r.img)) : '';
-    const badge = (r.stock > 0) ? `<span class="badge in">\u2713 \u0412 \u043D\u0430\u043B\u0438\u0447\u0438\u0438</span>` : `<span class="badge pre">\u041F\u043E\u0434 \u0437\u0430\u043A\u0430\u0437</span>`;
-    const imgHtml = imgSrc
-      ? `<a class="pimg" href="${href}"><img src="${imgSrc}" loading="lazy" alt="${escHtml((r.brand || '') + ' ' + (r.model || ''))}">${badge}</a>`
-      : `<a class="pimg" href="${href}"><div class="noimg">\uD83D\uDCF7</div>${badge}</a>`;
-    const specs = r.res ? `<div class="pb-spec"><span>${escHtml(r.res)}</span></div>` : '';
-    const price = r.price ? `<b>${fmtKzt(r.price)}</b><small>\u0420\u0420\u0426</small>` : `<span class="req">\u0426\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</span>`;
-    return `<div class="pcard">${imgHtml}<div class="pbody"><div class="pb-brand">${escHtml(r.brand || r.cat || '')}</div><a class="pb-name" href="${href}">${escHtml(r.model || '')}</a>${r.sku ? `<div class="pb-art">\u0430\u0440\u0442. ${escHtml(r.sku)}</div>` : ''}${specs}<div class="pb-price">${price}</div></div></div>`;
+    const img = imgSrc
+      ? `<a class="imgbox" href="${href}"><img src="${imgSrc}" loading="lazy" alt="${escHtml((r.brand || '') + ' ' + (r.model || ''))}"></a>`
+      : `<a class="imgbox" href="${href}"><div class="noimg">\uD83D\uDCF7</div></a>`;
+    const price = r.price ? `<div class="price">${fmtKzt(r.price)} <small>\u0420\u0420\u0426</small></div>` : `<div class="ondemand">\u0446\u0435\u043D\u0430 \u043F\u043E \u0437\u0430\u043F\u0440\u043E\u0441\u0443</div>`;
+    return `<div class="card">${img}<div class="cbody"><div class="brand">${escHtml(r.brand || r.cat || '')}</div><div class="cmodel"><a href="${href}">${escHtml(r.model || '')}</a></div><div class="cprice">${price}</div></div></div>`;
   }).join('');
 }
 
@@ -1090,7 +1086,7 @@ app.get(/\.html$|^\/$/, (req, res, next) => {
     const grp = SECTION_GROUPS[file];
     if (grp) {
       const ssr = ssrGrid(grp);
-      if (ssr) html = html.replace('<div class="prodgrid" id="grid"></div>', '<div class="prodgrid" id="grid">' + ssr + '</div>');
+      if (ssr) html = html.replace('<div class="grid" id="grid"></div>', '<div class="grid" id="grid">' + ssr + '</div>');
     }
     res.set('Cache-Control', 'public, max-age=300');
     res.type('html').send(applySeo(html));
