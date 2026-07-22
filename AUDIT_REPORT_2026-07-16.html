@@ -1,0 +1,357 @@
+<title>s1com.kz — аудит перед деплоем</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #eef2f1;
+    --surface: #ffffff;
+    --surface-2: #f5f8f7;
+    --ink: #14201d;
+    --ink-2: #47585340;
+    --muted: #5c6d68;
+    --line: #d9e2df;
+    --accent: #10a56a;
+    --accent-ink: #0a7d50;
+    --crit: #d5433a;
+    --crit-bg: #fbeae8;
+    --warn: #c67c12;
+    --warn-bg: #fbf1e0;
+    --info: #3a7bd5;
+    --shadow: 0 1px 2px rgba(20,32,29,.06), 0 8px 24px -12px rgba(20,32,29,.18);
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1614;
+      --surface: #16211e;
+      --surface-2: #1b2825;
+      --ink: #e7efec;
+      --muted: #93a8a2;
+      --line: #294038;
+      --accent: #2fce8c;
+      --accent-ink: #56dda3;
+      --crit: #ff6b60;
+      --crit-bg: #2b1614;
+      --warn: #e0a03e;
+      --warn-bg: #2a2011;
+      --info: #6ea8ee;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #eef2f1; --surface: #ffffff; --surface-2: #f5f8f7; --ink: #14201d;
+    --muted: #5c6d68; --line: #d9e2df; --accent: #10a56a; --accent-ink: #0a7d50;
+    --crit: #d5433a; --crit-bg: #fbeae8; --warn: #c67c12; --warn-bg: #fbf1e0; --info: #3a7bd5;
+    --shadow: 0 1px 2px rgba(20,32,29,.06), 0 8px 24px -12px rgba(20,32,29,.18);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1614; --surface: #16211e; --surface-2: #1b2825; --ink: #e7efec;
+    --muted: #93a8a2; --line: #294038; --accent: #2fce8c; --accent-ink: #56dda3;
+    --crit: #ff6b60; --crit-bg: #2b1614; --warn: #e0a03e; --warn-bg: #2a2011; --info: #6ea8ee;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 12px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55;
+    font-size: 16px; letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: clamp(20px, 4vw, 52px) clamp(16px, 4vw, 40px) 72px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 14px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+  h1 {
+    font-family: var(--sans); font-weight: 800; letter-spacing: -0.03em;
+    font-size: clamp(30px, 6vw, 46px); line-height: 1.04; margin: 0 0 16px;
+    text-wrap: balance;
+  }
+  h1 .accent { color: var(--accent-ink); }
+  .lede { font-size: clamp(16px, 2.4vw, 18.5px); color: var(--muted); max-width: 62ch; margin: 0; }
+
+  /* status banner */
+  .status {
+    margin: 30px 0 0; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 16px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .status-head {
+    display: flex; align-items: center; gap: 14px; padding: 18px 22px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, var(--surface)), var(--surface));
+    border-bottom: 1px solid var(--line);
+  }
+  .check {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #fff; display: grid; place-items: center;
+    font-size: 18px; font-weight: 700;
+  }
+  .status-head strong { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  .status-head span { display: block; font-size: 13px; color: var(--muted); font-weight: 500; }
+
+  .tests {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1px; background: var(--line);
+  }
+  .test {
+    background: var(--surface); padding: 15px 16px 14px;
+  }
+  .test b {
+    font-family: var(--mono); font-size: 22px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em; display: block;
+    color: var(--ink);
+  }
+  .test b::after { content: " ✓"; color: var(--accent); font-size: 14px; }
+  .test small { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
+  .test.total { background: var(--surface-2); }
+
+  section { margin-top: 48px; }
+  .sec-label {
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 4px; display: flex; align-items: baseline; gap: 10px;
+  }
+  .sec-label .num { color: var(--accent-ink); font-weight: 600; }
+  h2 { font-size: clamp(21px, 3.4vw, 26px); font-weight: 750; letter-spacing: -0.02em; margin: 0 0 18px; text-wrap: balance; }
+  .sec-note { color: var(--muted); font-size: 15px; margin: -8px 0 20px; max-width: 64ch; }
+
+  .cards { display: flex; flex-direction: column; gap: 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
+    box-shadow: var(--shadow); padding: 18px 20px 18px 22px; position: relative;
+    border-left: 4px solid var(--sev, var(--line));
+  }
+  .card.crit { --sev: var(--crit); }
+  .card.warn { --sev: var(--warn); }
+  .card-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .05em;
+    text-transform: uppercase; padding: 3px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  .chip.crit { background: var(--crit-bg); color: var(--crit); }
+  .chip.warn { background: var(--warn-bg); color: var(--warn); }
+  .chip.done {
+    background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent-ink);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .card h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 0; flex: 1; min-width: 200px; }
+  .card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+  .card p + p { margin-top: 8px; }
+  .card .fix { color: var(--ink); }
+  .card .fix b { color: var(--accent-ink); font-weight: 650; }
+  code {
+    font-family: var(--mono); font-size: .88em; background: var(--surface-2);
+    padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line);
+    color: var(--ink); white-space: nowrap;
+  }
+
+  /* proof strip */
+  .proof {
+    margin-top: 16px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 0;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
+    box-shadow: var(--shadow); overflow: hidden; align-items: stretch;
+  }
+  .proof > div { padding: 18px 20px; }
+  .proof .mid { display: grid; place-items: center; background: var(--surface-2); border-left: 1px solid var(--line); border-right: 1px solid var(--line); font-size: 20px; color: var(--muted); }
+  .proof .plabel { font-family: var(--mono); font-size: 11.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 8px; }
+  .proof .pval { font-family: var(--mono); font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+  .proof .old .pval b { color: var(--crit); }
+  .proof .new .pval b { color: var(--accent-ink); }
+  .proof .pval span { font-size: 13px; color: var(--muted); font-weight: 400; }
+
+  /* callout */
+  .callout {
+    background: var(--warn-bg); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line));
+    border-radius: 13px; padding: 20px 22px; display: flex; gap: 16px; align-items: flex-start;
+  }
+  .callout .ic { font-size: 22px; flex: none; line-height: 1.3; }
+  .callout h3 { margin: 0 0 6px; font-size: 16.5px; font-weight: 700; letter-spacing: -0.01em; }
+  .callout p { margin: 0; font-size: 14.5px; color: var(--ink); opacity: .82; }
+  .callout p + p { margin-top: 7px; }
+
+  /* decisions */
+  .decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .dec {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 13px;
+    box-shadow: var(--shadow); padding: 18px 20px;
+  }
+  .dec .ic { font-size: 19px; margin-bottom: 10px; }
+  .dec h3 { margin: 0 0 6px; font-size: 15.5px; font-weight: 700; letter-spacing: -0.01em; }
+  .dec p { margin: 0; font-size: 14px; color: var(--muted); }
+  .dec code { white-space: normal; }
+
+  /* next steps */
+  .next {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); padding: 8px 4px;
+  }
+  .step { display: flex; gap: 16px; padding: 14px 20px; align-items: baseline; border-bottom: 1px solid var(--line); }
+  .step:last-child { border-bottom: 0; }
+  .step .n {
+    font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent-ink);
+    flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 13%, transparent); align-self: center;
+  }
+  .step p { margin: 0; font-size: 14.5px; }
+  .step p small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .step code { white-space: normal; }
+
+  footer {
+    margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--line);
+    color: var(--muted); font-size: 13px; font-family: var(--mono);
+    display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+
+  @media (max-width: 640px) {
+    .proof { grid-template-columns: 1fr; }
+    .proof .mid { border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 8px; transform: rotate(90deg) scale(1); }
+    .proof .mid { transform: none; }
+    .decisions { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow"><span class="dot"></span> s1com.kz · интернет-каталог систем безопасности · аудит перед деплоем</p>
+  <h1>Готово к деплою:<br><span class="accent">два блокера закрыты</span>, склейка починена</h1>
+  <p class="lede">Прогнал предделойный гейт и четыре независимых аудита — безопасность, деплой-конфиг, корректность кода, целостность архива. Всё найденное исправлено и подтверждено тестами. Архив пересобран.</p>
+
+  <div class="status">
+    <div class="status-head">
+      <div class="check">✓</div>
+      <div>
+        <strong>Предделойный гейт — зелёный</strong>
+        <span>npm run test:all · прогон на финальном состоянии, которое уезжает в архив</span>
+      </div>
+    </div>
+    <div class="tests">
+      <div class="test"><b>62</b><small>unit</small></div>
+      <div class="test"><b>138</b><small>api</small></div>
+      <div class="test"><b>15</b><small>supplier</small></div>
+      <div class="test"><b>18</b><small>match-fixes</small></div>
+      <div class="test"><b>16</b><small>security</small></div>
+      <div class="test"><b>142</b><small>e2e</small></div>
+      <div class="test total"><b>0</b><small>провалов</small></div>
+    </div>
+  </div>
+
+  <section>
+    <p class="sec-label"><span class="num">01</span> Блокеры</p>
+    <h2>Два дефекта, которые нельзя было выкладывать</h2>
+    <div class="cards">
+      <div class="card crit">
+        <div class="card-top">
+          <span class="chip crit">Критично</span>
+          <h3>XSS через данные поставщика</h3>
+          <span class="chip done">✓ починено</span>
+        </div>
+        <p>Поля товара (<code>brand</code>, <code>model</code>, <code>img</code>) приезжают из чужого API Al-Style / Complex и вставлялись в страницу без экранирования в 4 местах. Одно «грязное» значение в фиде — и на витрине выполняется чужой скрипт: угон сессии админа, подмена контактов, редирект на фишинг.</p>
+        <p>CSP тут не защищала: <code>applySeo</code> штампует nonce на каждый инлайн-скрипт готового HTML, включая внедрённый.</p>
+        <p class="fix"><b>Исправление:</b> экранирование в галерее, <code>window.PRODUCT</code>, <code>PAGE_BRAND</code> и внешних URL картинок на 7 страницах разделов. Показательно — в соседних строках экранирование уже стояло правильно.</p>
+      </div>
+      <div class="card crit">
+        <div class="card-top">
+          <span class="chip crit">Критично</span>
+          <h3>db.js писал в несуществующую колонку</h3>
+          <span class="chip done">✓ починено</span>
+        </div>
+        <p><code>INSERT INTO menu_items(…updated_at)</code> — такой колонки в схеме нет (там <code>created_at</code>). Пункт меню «Полезное» не появлялся в навбаре, флаг не сохранялся, а ошибка молча повторялась при каждом старте сервера.</p>
+        <p class="fix"><b>Исправление:</b> опечатка в одном слове. Проверено на свежей базе — пункт появляется, лог чист.</p>
+      </div>
+    </div>
+
+    <div class="proof">
+      <div class="old">
+        <div class="plabel">XSS-проба на старом коде</div>
+        <div class="pval"><b>4 провала</b> <span>дыра воспроизводится</span></div>
+      </div>
+      <div class="mid">→</div>
+      <div class="new">
+        <div class="plabel">та же проба на новом коде</div>
+        <div class="pval"><b>6 / 6</b> <span>атака заблокирована</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="sec-label"><span class="num">02</span> Склейка дублей</p>
+    <h2>Четыре дефекта в новой функции</h2>
+    <p class="sec-note">Склейка дублей между поставщиками — новая функция, на проде её ещё нет. Вы попросили закрыть все дефекты до деплоя. Каждый воспроизведён и покрыт новым тестом <code>match-fixes</code> (18 проверок): на старом коде он краснеет, на новом — зелёный.</p>
+    <div class="cards">
+      <div class="card warn">
+        <div class="card-top"><span class="chip warn">Потеря товара</span><h3>Товар исчезал с витрины целиком</h3><span class="chip done">✓</span></div>
+        <p>Если «победителя» в очереди ранее спрятали руками, разбор группы не возвращал его на витрину, но прятал всех остальных — а API отвечал «успешно». Теперь такой выбор отклоняется с внятной ошибкой.</p>
+      </div>
+      <div class="card warn">
+        <div class="card-top"><span class="chip warn">Мусор в очереди</span><h3>«Это разные товары» не запоминалось</h3><span class="chip done">✓</span></div>
+        <p>Та же группа возвращалась в очередь каждый прогон. Теперь решение залипает, а передумать можно в новой вкладке <code>🚫 Не дубли</code> — вернуть группу в очередь.</p>
+      </div>
+      <div class="card warn">
+        <div class="card-top"><span class="chip warn">Регрессия</span><h3>«Показать» жило до ночного импорта</h3><span class="chip done">✓</span></div>
+        <p>Кнопка снимала ручное скрытие, но не саму склейку, и импорт прятал товар снова. Зеркальная ошибка к прошлому фиксу «скрытие залипает».</p>
+      </div>
+      <div class="card warn">
+        <div class="card-top"><span class="chip warn">Осиротевшие</span><h3>Удаление победителя хоронило проигравших</h3><span class="chip done">✓</span></div>
+        <p>Они оставались скрытыми со ссылкой на мёртвый id, и импорт их не возвращал. Теперь удаление сначала освобождает всех, кто был склеен в этот товар.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="sec-label"><span class="num">03</span> Важно знать</p>
+    <h2>Не баг, но меняет ожидания</h2>
+    <div class="callout">
+      <div class="ic">⚠️</div>
+      <div>
+        <h3>AUTO_MERGE включать не нужно — он ничего не склеит</h3>
+        <p>Надёжная авто-склейка требует совпавший штрихкод у <strong>двух разных</strong> поставщиков. У API Complex штрихкодов нет вовсе, поэтому кнопка «Склеить надёжные (EAN)» и <code>AUTO_MERGE=true</code> не склеят ни одной позиции — все дубли пойдут в очередь на ваш ручной разбор. Это штатный режим.</p>
+        <p>Прошлый DEPLOY_NOW обещал обратное — я это исправил. EAN-ветка окупится, когда появится третий поставщик со штрихкодами.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="sec-label"><span class="num">04</span> Решения по ходу</p>
+    <h2>Что я выбрал сам</h2>
+    <div class="decisions">
+      <div class="dec">
+        <div class="ic">🗄️</div>
+        <h3>Старый архив сохранён, не затёрт</h3>
+        <p>В проекте нет git, и архив от 15 июля был единственной копией рабочего состояния. Оставил его как <code>s1com-otkat-2026-07-15.zip</code> — точку отката.</p>
+      </div>
+      <div class="dec">
+        <div class="ic">🎭</div>
+        <h3>Playwright убран из зависимостей</h3>
+        <p>Render собирает без <code>--omit=dev</code>, а этот пакет тянет Chromium ~150 МБ. Локально для e2e он остаётся, в прод-сборку не уедет.</p>
+      </div>
+      <div class="dec">
+        <div class="ic">📄</div>
+        <h3>CLAUDE.md не резал</h3>
+        <p>В начале ошибся — решил, что он раздут. На деле 110 КБ только из-за кириллицы. Дополнил уроками аудита и поправил раздел про домен.</p>
+      </div>
+      <div class="dec">
+        <div class="ic">🧪</div>
+        <h3>Тест доказан «от обратного»</h3>
+        <p>Каждый фикс прогнан против старого кода — тест обязан был покраснеть. Поймал у себя одну проверку, что проходила впустую, и переписал её.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="sec-label"><span class="num">05</span> Дальше</p>
+    <h2>Осталось под вашими руками</h2>
+    <div class="next">
+      <div class="step"><span class="n">1</span><p>Залить <code>s1com-proekt-polnyy.zip</code> на GitHub <code>s1com/s1com</code><small>Add file → Upload files, сохраняя структуру папок → Commit to main</small></p></div>
+      <div class="step"><span class="n">2</span><p>Render → <code>servis-catalog</code> → Manual Deploy → Clear build cache &amp; deploy<small>ENV трогать не нужно — фикс домена оживит сайт сам</small></p></div>
+      <div class="step"><span class="n">3</span><p>Проверить: главная открывается, а не уходит в 301<small>Это главный признак, что фикс приехал. В браузере — Cmd+Shift+R</small></p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Аудит: 16 июля 2026</span>
+    <span>4 аудитора · 6 дефектов · 18 новых проверок · гейт зелёный</span>
+  </footer>
+</div>
